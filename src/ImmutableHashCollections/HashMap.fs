@@ -4,7 +4,7 @@ open System.Collections
 open System.Collections.Generic
 
 [<AutoOpen>]
-module internal HashMapImplementation = 
+module internal HashMapOkasakiImplementation = 
     let inline mask (k : uint32) (m : uint32) = 
         //k &&& (m - 1u) // little endian
         (k ||| (m - 1u)) &&& ~~~m // big endian
@@ -105,13 +105,13 @@ module internal HashMapImplementation =
                     None
 
     [<CompilationRepresentation(CompilationRepresentationFlags.UseNullAsTrueValue)>]
-    type HashMapNode<'K, 'V> =
+    type HashMapOkasakiNode<'K, 'V> =
         | Empty
         | Leaf of hash : uint32 * key : 'K * value : 'V * rest : Linked<'K, 'V>
-        | Node of prefix : uint32 * branchBit : uint32 * HashMapNode<'K, 'V> * HashMapNode<'K, 'V>
+        | Node of prefix : uint32 * branchBit : uint32 * HashMapOkasakiNode<'K, 'V> * HashMapOkasakiNode<'K, 'V>
         
-    module HashMapNode =
-        let inline private newNode (p : uint32) (m : uint32) (l : HashMapNode<'K, 'V>) (r : HashMapNode<'K, 'V>) =
+    module HashMapOkasakiNode =
+        let inline private newNode (p : uint32) (m : uint32) (l : HashMapOkasakiNode<'K, 'V>) (r : HashMapOkasakiNode<'K, 'V>) =
             match l with
             | Empty -> r
             | _ ->
@@ -119,12 +119,12 @@ module internal HashMapImplementation =
                 | Empty -> l
                 | _ -> Node(p, m, l, r)
 
-        let private join (p0 : uint32) (t0 : HashMapNode<'K, 'V>) (p1 : uint32) (t1 : HashMapNode<'K, 'V>) =
+        let private join (p0 : uint32) (t0 : HashMapOkasakiNode<'K, 'V>) (p1 : uint32) (t1 : HashMapOkasakiNode<'K, 'V>) =
             let m = branchingBit p0 p1
             if zeroBit p0 m then Node(mask p0 m, m, t0, t1)
             else Node(mask p0 m, m, t1, t0)
 
-        let rec tryFind (hash : uint32) (key : 'K) (node : HashMapNode<'K, 'V>) =
+        let rec tryFind (hash : uint32) (key : 'K) (node : HashMapOkasakiNode<'K, 'V>) =
             match node with
             | Empty -> None
             | Leaf(h, k, v, rest) -> 
@@ -140,7 +140,7 @@ module internal HashMapImplementation =
                 else
                     None
 
-        let rec add (cnt : ref<int>) (hash : uint32) (key : 'K) (value : 'V) (node : HashMapNode<'K, 'V>) =
+        let rec add (cnt : ref<int>) (hash : uint32) (key : 'K) (value : 'V) (node : HashMapOkasakiNode<'K, 'V>) =
             match node with
             | Empty -> 
                 cnt := !cnt + 1
@@ -166,7 +166,7 @@ module internal HashMapImplementation =
                     cnt := !cnt + 1
                     join prefix (node) hash (Leaf(hash, key, value, null))
 
-        let rec tryRemove (cnt : ref<int>) (hash : uint32) (key : 'K) (node : HashMapNode<'K, 'V>) =
+        let rec tryRemove (cnt : ref<int>) (hash : uint32) (key : 'K) (node : HashMapOkasakiNode<'K, 'V>) =
             match node with
             | Empty -> 
                 ValueNone
@@ -205,7 +205,7 @@ module internal HashMapImplementation =
                 else
                     ValueNone
 
-        let rec remove (cnt : ref<int>) (hash : uint32) (key : 'K) (node : HashMapNode<'K, 'V>) =
+        let rec remove (cnt : ref<int>) (hash : uint32) (key : 'K) (node : HashMapOkasakiNode<'K, 'V>) =
             match node with
             | Empty -> node
             | Leaf(h, k, v, n) ->
@@ -234,7 +234,7 @@ module internal HashMapImplementation =
                 else
                     node
 
-        let rec alter (cnt : ref<int>) (hash : uint32) (key : 'K) (update : option<'V> -> option<'V>) (node : HashMapNode<'K, 'V>) =
+        let rec alter (cnt : ref<int>) (hash : uint32) (key : 'K) (update : option<'V> -> option<'V>) (node : HashMapOkasakiNode<'K, 'V>) =
             match node with
             | Empty ->
                 match update None with
@@ -280,9 +280,9 @@ module internal HashMapImplementation =
                         join prefix (node) hash (Leaf(hash, key, v, null))
 
 [<Struct>]
-type HashMap<'K, 'V> internal(cnt : int, root : HashMapNode<'K, 'V>) =
+type HashMapOkasaki<'K, 'V> internal(cnt : int, root : HashMapOkasakiNode<'K, 'V>) =
 
-    static member Empty = HashMap<'K, 'V>(0, HashMapNode.Empty)
+    static member Empty = HashMapOkasaki<'K, 'V>(0, HashMapOkasakiNode.Empty)
     
     member x.Count = cnt
     member internal x.Root = root
@@ -290,41 +290,41 @@ type HashMap<'K, 'V> internal(cnt : int, root : HashMapNode<'K, 'V>) =
     member x.Add(key : 'K, value : 'V) =
         let c = ref cnt
         let hash = Unchecked.hash key |> uint32
-        let newRoot = root |> HashMapNode.add c hash key value
-        HashMap(!c, newRoot)
+        let newRoot = root |> HashMapOkasakiNode.add c hash key value
+        HashMapOkasaki(!c, newRoot)
         
     member x.Remove(key : 'K) =
         let c = ref cnt
         let hash = Unchecked.hash key |> uint32
-        let newRoot = root |> HashMapNode.remove c hash key
-        HashMap(!c, newRoot)
+        let newRoot = root |> HashMapOkasakiNode.remove c hash key
+        HashMapOkasaki(!c, newRoot)
         
     member x.Alter(key : 'K, update : option<'V> -> option<'V>) =
         let c = ref cnt
         let hash = Unchecked.hash key |> uint32
-        let newRoot = root |> HashMapNode.alter c hash key update
-        HashMap(!c, newRoot)
+        let newRoot = root |> HashMapOkasakiNode.alter c hash key update
+        HashMapOkasaki(!c, newRoot)
 
     member x.TryRemove(key : 'K) =
         let c = ref cnt
         let hash = Unchecked.hash key |> uint32
-        match HashMapNode.tryRemove c hash key root with
+        match HashMapOkasakiNode.tryRemove c hash key root with
         | ValueSome(value, root) ->
-            Some(value, HashMap(!c, root))
+            Some(value, HashMapOkasaki(!c, root))
         | ValueNone ->
             None
         
     member x.TryFind(key : 'K) =
         let hash = Unchecked.hash key |> uint32
-        HashMapNode.tryFind hash key root
+        HashMapOkasakiNode.tryFind hash key root
 
     interface IEnumerable with
-        member x.GetEnumerator() = new HashMapEnumerator<'K, 'V>(root) :> _
+        member x.GetEnumerator() = new HashMapOkasakiEnumerator<'K, 'V>(root) :> _
 
     interface IEnumerable<'K * 'V> with
-        member x.GetEnumerator() = new HashMapEnumerator<'K, 'V>(root) :> _
+        member x.GetEnumerator() = new HashMapOkasakiEnumerator<'K, 'V>(root) :> _
 
-and private HashMapEnumerator<'K, 'V>(root : HashMapNode<'K, 'V>) =
+and private HashMapOkasakiEnumerator<'K, 'V>(root : HashMapOkasakiNode<'K, 'V>) =
     let mutable stack = [ root ]
     let mutable current = Unchecked.defaultof<'K * 'V>
     let mutable rest : Linked<'K, 'V> = null
@@ -332,15 +332,15 @@ and private HashMapEnumerator<'K, 'V>(root : HashMapNode<'K, 'V>) =
     member x.MoveNext() =
         if isNull rest then
             match stack with
-            | HashMapNode.Leaf(h, k, v, ns) :: r ->
+            | HashMapOkasakiNode.Leaf(h, k, v, ns) :: r ->
                 stack <- r
                 current <- (k, v)
                 rest <- ns
                 true
-            | HashMapNode.Empty :: r ->
+            | HashMapOkasakiNode.Empty :: r ->
                 stack <- r
                 x.MoveNext()
-            | HashMapNode.Node(_,_,l,r) :: rest ->
+            | HashMapOkasakiNode.Node(_,_,l,r) :: rest ->
                 stack <- l :: r :: rest
                 x.MoveNext()
             | [] ->
@@ -367,10 +367,10 @@ and private HashMapEnumerator<'K, 'V>(root : HashMapNode<'K, 'V>) =
             stack <- []
         member x.Current = x.Current
 
-module HashMap =
+module HashMapOkasaki =
 
     [<GeneralizableValue>]
-    let empty<'K, 'V> = HashMap<'K, 'V>.Empty
+    let empty<'K, 'V> = HashMapOkasaki<'K, 'V>.Empty
 
     let ofSeq (seq : seq<'K * 'V>) =
         let mutable res = empty
@@ -383,22 +383,22 @@ module HashMap =
     let inline ofArray (arr : array<'K * 'V>) = 
         ofSeq arr
 
-    let inline toSeq (m : HashMap<'K, 'V>) = m :> seq<_>
-    let inline toList (m : HashMap<'K, 'V>) = m |> Seq.toList
-    let inline toArray (m : HashMap<'K, 'V>) = m |> Seq.toArray
+    let inline toSeq (m : HashMapOkasaki<'K, 'V>) = m :> seq<_>
+    let inline toList (m : HashMapOkasaki<'K, 'V>) = m |> Seq.toList
+    let inline toArray (m : HashMapOkasaki<'K, 'V>) = m |> Seq.toArray
 
-    let inline add (key : 'K) (value : 'V) (map : HashMap<'K, 'V>) =
+    let inline add (key : 'K) (value : 'V) (map : HashMapOkasaki<'K, 'V>) =
         map.Add(key, value)
 
-    let inline remove (key : 'K) (map : HashMap<'K, 'V>) =
+    let inline remove (key : 'K) (map : HashMapOkasaki<'K, 'V>) =
         map.Remove(key)
         
-    let inline alter (key : 'K) (update : option<'V> -> option<'V>) (map : HashMap<'K, 'V>) =
+    let inline alter (key : 'K) (update : option<'V> -> option<'V>) (map : HashMapOkasaki<'K, 'V>) =
         map.Alter(key, update)
 
-    let inline tryRemove (key : 'K) (map : HashMap<'K, 'V>) =
+    let inline tryRemove (key : 'K) (map : HashMapOkasaki<'K, 'V>) =
         map.TryRemove(key)
         
-    let inline tryFind (key : 'K) (map : HashMap<'K, 'V>) =
+    let inline tryFind (key : 'K) (map : HashMapOkasaki<'K, 'V>) =
         map.TryFind(key)
 
