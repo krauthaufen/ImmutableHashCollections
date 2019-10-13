@@ -5,6 +5,7 @@ source https://nuget.org/api/v2
 nuget FSharp.Core
 nuget Argu
 
+nuget System.Collections.Immutable
 nuget BenchmarkDotNet ~> 0.11.5
 nuget Expecto
 nuget Expecto.FsCheck

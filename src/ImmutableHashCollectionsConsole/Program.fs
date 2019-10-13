@@ -3,28 +3,28 @@ open ImmutableHashCollections
 
 [<EntryPoint>]
 let main argv = 
-    let map = HashMap.empty
+    let map = HashMapOkasaki.empty
 
     let m = 
         map
-        |> HashMap.add 0.0 "zero"
-        |> HashMap.add 1.0 "one"
-        |> HashMap.add 2.0 "two"
-        |> HashMap.add 1231231.0 "huge"
-        |> HashMap.add 1000.0 "thousand"
-        |> HashMap.add 4.0 "four"
-        |> HashMap.add 7.0 "seven"
-        |> HashMap.alter 1000.0 (fun o ->
+        |> HashMapOkasaki.add 0.0 "zero"
+        |> HashMapOkasaki.add 1.0 "one"
+        |> HashMapOkasaki.add 2.0 "two"
+        |> HashMapOkasaki.add 1231231.0 "huge"
+        |> HashMapOkasaki.add 1000.0 "thousand"
+        |> HashMapOkasaki.add 4.0 "four"
+        |> HashMapOkasaki.add 7.0 "seven"
+        |> HashMapOkasaki.alter 1000.0 (fun o ->
             printfn "old: %A" o
             None
         )
 
-    match HashMap.tryRemove 4.0 m with
+    match HashMapOkasaki.tryRemove 4.0 m with
     | Some (value, rest) ->
         printfn "%A" value
-        printfn "%A" (HashMap.toList rest)
+        printfn "%A" (HashMapOkasaki.toList rest)
     | None ->
         ()
 
-    printfn "%A %A" m.Count (HashMap.toList m)
+    printfn "%A %A" m.Count (HashMapOkasaki.toList m)
     0

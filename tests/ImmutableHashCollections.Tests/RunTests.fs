@@ -3,29 +3,43 @@ namespace ImmutableHashCollections.Tests
 open ImmutableHashCollections
 open BenchmarkDotNet.Attributes
 open BenchmarkDotNet.Running
+open System.Collections.Immutable
 
 type AddPerformance() =
     let mutable okasaki = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
+    let mutable sys = ImmutableDictionary.Empty
+
     let mutable key = 0
 
-    [<DefaultValue; Params(0, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000)>]
+    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
     member x.Seup() =
         okasaki <- HashMapOkasaki.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
         fsharpmap <- Map.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
+
+        sys <-
+            (ImmutableDictionary.Empty, [1..x.N]) ||> List.fold (fun d k ->
+                d.SetItem(k, k)
+            )
+
         key <- x.N / 2
 
     [<Benchmark>]
     member x.HashMapOkasaki_add() =
-        HashMapOkasaki.add key key okasaki
+        HashMapOkasaki.add key -123 okasaki
         
     [<Benchmark>]
     member x.FSharpMap_add() =
-        Map.add key key fsharpmap
+        Map.add key -123 fsharpmap
+        
+    [<Benchmark>]
+    member x.ImmutableDictionary_add() =
+        sys.SetItem(key, -123)
 
+        
         
         
 
