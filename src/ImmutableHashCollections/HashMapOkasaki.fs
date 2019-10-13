@@ -31,7 +31,7 @@ module internal HashMapOkasakiImplementation =
         x &&& (~~~x + 1u)
 
     let inline branchingBit (p0 : uint32) (p1 : uint32) =
-        // lowestBitMask (p0 ^^^ p1) // little endian
+        //lowestBitMask (p0 ^^^ p1) // little endian
         highestBitMask (p0 ^^^ p1) // big endian
 
     [<AllowNullLiteral>]

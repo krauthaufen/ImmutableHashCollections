@@ -41,12 +41,13 @@ type UpdatePerformance() =
 
 type AddPerformance() =
     let mutable okasaki = HashMapOkasaki.empty
+    let mutable okasakiv = HashMapOkasakiVirtual.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
 
     let mutable key = 0
 
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(0, 100, 1000)>] //10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
@@ -57,6 +58,7 @@ type AddPerformance() =
                 i, i
             )
         okasaki <- HashMapOkasaki.ofList list
+        okasakiv <- HashMapOkasakiVirtual.ofList list
         fsharpmap <- Map.ofList list
         sys <-
             (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
@@ -70,12 +72,16 @@ type AddPerformance() =
         HashMapOkasaki.add key -123 okasaki
         
     [<Benchmark>]
-    member x.FSharpMap_add() =
-        Map.add key -123 fsharpmap
+    member x.HashMapOkasakiVirtual_add() =
+        HashMapOkasakiVirtual.add key -123 okasakiv
         
-    [<Benchmark>]
-    member x.ImmutableDictionary_add() =
-        sys.SetItem(key, -123)
+    //[<Benchmark>]
+    //member x.FSharpMap_add() =
+    //    Map.add key -123 fsharpmap
+        
+    //[<Benchmark>]
+    //member x.ImmutableDictionary_add() =
+    //    sys.SetItem(key, -123)
 
 type RemovePerformance() =
     let mutable okasaki = HashMapOkasaki.empty
@@ -160,7 +166,7 @@ type WorkingLookupPerformance() =
 
     let mutable key = 0
 
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(100, 500, 1000)>] //, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
@@ -243,11 +249,11 @@ module RunTests =
             if not (Directory.Exists outDir) then Directory.CreateDirectory outDir |> ignore
             outDir
             
-        runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
-        runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
-        runBenchmark<RemovePerformance> (Path.Combine(outDir, "add.csv"))
+        //runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
+        //runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
+        //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
         runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
-        runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
+        //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
 
         //Tests.runTestsWithArgs defaultConfig args Tests.testSimpleTests |> ignore
 
