@@ -1,6 +1,6 @@
 ### Benchmarks
 
-The test currently adds a single entry (`N/2`) to a (Hash)Map of size `N`.   
+The test currently updates a single (already existing) entry (`N/2`) in a (Hash)Map of size `N`.   
 All tests are performed on `int` keys and values currently.  
 Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkDotNet)
 
