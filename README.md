@@ -9,6 +9,10 @@ Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkD
 
 ### Results
 
+
+
+![Chart](https://fshade.org/images/chart.svg)
+
 ```
 // * Summary *
 
@@ -43,3 +47,5 @@ Intel Core i7-8750H CPU 2.20GHz (Coffee Lake), 1 CPU, 12 logical and 6 physical 
 | HashMapOkasaki_add | 5000 | 246.37 ns | 3.9552 ns |  3.700 ns |
 |      FSharpMap_add | 5000 | 387.73 ns | 4.4223 ns |  3.453 ns |
 ```
+
+
