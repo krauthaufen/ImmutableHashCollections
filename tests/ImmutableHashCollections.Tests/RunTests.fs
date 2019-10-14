@@ -7,7 +7,15 @@ open System.Collections.Immutable
 open BenchmarkDotNet.Reports
 open FSharpx.Collections
 
-[<PlainExporter>]
+module Constants =
+    [<Literal>]
+    #if SMALL
+    let maxIter = 20
+    #else
+    let maxIter = 100
+    #endif
+
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type UpdatePerformance() =
     let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
@@ -50,7 +58,7 @@ type UpdatePerformance() =
     member x.ImmutableDictionary_update() =
         sys.SetItem(key, -123)
 
-[<PlainExporter>]
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type AddPerformance() =
     let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
@@ -99,7 +107,7 @@ type AddPerformance() =
     member x.ImmutableDictionary_add() =
         sys.SetItem(key, -123)
 
-[<PlainExporter>]
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type RemovePerformance() =
     let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
@@ -147,7 +155,7 @@ type RemovePerformance() =
     member x.ImmutableDictionary_remove() =
         sys.Remove(key)
 
-[<PlainExporter>]
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type FailingLookupPerformance() =
     let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
@@ -196,7 +204,7 @@ type FailingLookupPerformance() =
     member x.ImmutableDictionary_tryFind() =
         sys.TryGetValue(key)
  
-[<PlainExporter>]
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type WorkingLookupPerformance() =
     let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
@@ -245,7 +253,7 @@ type WorkingLookupPerformance() =
     member x.ImmutableDictionary_tryFind() =
         sys.TryGetValue(key)
 
-[<PlainExporter>]
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
 type OfListPerformance() =    
         
     #if SMALL
@@ -334,11 +342,11 @@ module RunTests =
             
         //Environment.CurrentDirectory <- outDir
 
-        //runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
-        //runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
-        //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
-        //runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
-        //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
+        runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
+        runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
+        runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
+        runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
+        runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
         runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
         0
 
