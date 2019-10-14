@@ -16,3 +16,4 @@ Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkD
 * [Add](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Add)
 * [Update](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Update)
 * [Remove](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Remove)
+* [OfList](https://github.com/krauthaufen/ImmutableHashCollections/wiki/OfList)
