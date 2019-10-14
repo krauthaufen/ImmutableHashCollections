@@ -59,6 +59,20 @@ module Tests =
                 | None ->
                     ()
                     
+            testPropertyWithConfig config10k "tryRemove" <| fun (m : Map<string, string>) ->
+                let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
+
+                match m |> Map.toSeq |> Seq.tryHead with
+                | Some (k,mv) ->
+                    match HashMapOkasakiVirtual.tryRemove k hm with
+                    | Some (value, rest) ->
+                        Expect.equalMaps (Map.remove k m) rest
+                        Expect.equal value mv "bad value"
+
+                    | None ->
+                        failwith "bad"
+                | None ->
+                    ()
             testProperty "alter" <| fun (m : Map<string, string>) ->
                 let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
 
