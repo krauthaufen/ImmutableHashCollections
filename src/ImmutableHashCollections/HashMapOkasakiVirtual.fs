@@ -10,11 +10,16 @@ open System.Runtime.Intrinsics.X86
 [<AutoOpen>]
 module internal HashMapOkasakiVirtualImplementation = 
     let inline mask (k : uint32) (m : uint32) = 
+        //k &&& ~~~((m <<< 1) - 1u)
+        // (k ||| (m - 1u)) &&& ~~~m
+
+
         #if NETCOREAPP3_0 
-        Bmi1.AndNot(m, k ||| (m - 1u))
+        Bmi1.AndNot((m <<< 1) - 1u, k)
         #else
         //k &&& (m - 1u) // little endian
-        (k ||| (m - 1u)) &&& ~~~m // big endian
+        //(k ||| (m - 1u)) &&& ~~~m // big endian
+        k &&& ~~~((m <<< 1) - 1u)
         #endif
     let inline matchPrefix (k : uint32) (p : uint32) (m : uint32) =
         mask k m = p

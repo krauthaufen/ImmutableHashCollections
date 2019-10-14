@@ -15,6 +15,11 @@ module Tests =
             let a = hm |> HashMapOkasakiVirtual.toList |> List.sortBy fst
             let b = m |> Map.toList
 
+            for (k, v) in b do
+                match HashMapOkasakiVirtual.tryFind k hm with
+                | Some vh -> Expect.equal v vh "bad value"
+                | None -> failwith "bad"
+
             //Expect.equal (Map.count m) (hm.Count) "Expect Equal Count"
 
             Expect.equal a b "Expected Equal Maps"
@@ -32,14 +37,14 @@ module Tests =
     let testSimpleTests =
 
         testList "HashMapOkasakiVirtual" [
-            testProperty "add" <| fun (m : Map<string, string>) ->
+            testPropertyWithConfig config10k "add" <| fun (m : Map<string, string>) ->
                 let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
 
                 let hm = HashMapOkasakiVirtual.add "a" "b" hm
                 let m = Map.add "a" "b" m
                 Expect.equalMaps m hm
 
-            testProperty "remove" <| fun (m : Map<string, string>) ->
+            testPropertyWithConfig config10k "remove" <| fun (m : Map<string, string>) ->
                 let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
 
                 let hm = HashMapOkasakiVirtual.remove "a" hm
