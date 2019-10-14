@@ -196,7 +196,7 @@ type WorkingLookupPerformance() =
 
     let mutable key = 0
 
-    [<DefaultValue; Params(10000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(5000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
@@ -216,17 +216,17 @@ type WorkingLookupPerformance() =
 
         key <- x.N / 2
 
-    //[<Benchmark>]
-    //member x.HashMapOkasaki_tryFind() =
-    //    HashMapOkasaki.tryFind key okasaki
+    [<Benchmark>]
+    member x.HashMapOkasaki_tryFind() =
+        HashMapOkasaki.tryFind key okasaki
         
     [<Benchmark>]
     member x.HashMapOkasakiVirtual_tryFind() =
         HashMapOkasakiVirtual.tryFind key okasakiv
         
-    //[<Benchmark>]
-    //member x.FSharpMap_tryFind() =
-    //    Map.tryFind key fsharpmap
+    [<Benchmark>]
+    member x.FSharpMap_tryFind() =
+        Map.tryFind key fsharpmap
         
     [<Benchmark>]
     member x.ImmutableDictionary_tryFind() =
@@ -236,7 +236,7 @@ type WorkingLookupPerformance() =
 [<PlainExporter>]
 type OfListPerformance() =    
         
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     let mutable list = []
@@ -250,6 +250,10 @@ type OfListPerformance() =
     [<Benchmark>]
     member x.HashMapOkasakiVirtual_ofList() =
         HashMapOkasakiVirtual.ofList list
+        
+    [<Benchmark>]
+    member x.HashMapOkasakiVirtual_ofListUnoptimized() =
+        HashMapOkasakiVirtual.ofListUnoptimized list
         
     [<Benchmark>]
     member x.FSharpMap_ofList() =
@@ -315,6 +319,6 @@ module RunTests =
         //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
         //runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
         //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
-        //runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
+        runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
         0
 

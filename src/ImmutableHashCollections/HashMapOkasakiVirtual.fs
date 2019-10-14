@@ -4,16 +4,14 @@ open System.Collections
 open System.Collections.Generic
 #if NETCOREAPP3_0 
 open System.Runtime.Intrinsics.X86
+open System.Runtime.CompilerServices
+
 #endif
 
 
 [<AutoOpen>]
 module internal HashMapOkasakiVirtualImplementation = 
     let inline mask (k : uint32) (m : uint32) = 
-        //k &&& ~~~((m <<< 1) - 1u)
-        // (k ||| (m - 1u)) &&& ~~~m
-
-
         #if NETCOREAPP3_0 
         Bmi1.AndNot((m <<< 1) - 1u, k)
         #else
@@ -52,14 +50,27 @@ module internal HashMapOkasakiVirtualImplementation =
 
     [<AllowNullLiteral>]
     type Linked<'K, 'V> =
+        val mutable public Next : Linked<'K, 'V>
         val mutable public Key : 'K
         val mutable public Value : 'V
-        val mutable public Next : Linked<'K, 'V>
 
         new(k, v) = { Key = k; Value = v; Next = null }
         new(k, v, n) = { Key = k; Value = v; Next = n }
 
     module Linked =
+    
+        let rec addInPlaceUnsafe (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (value : 'V) (n : Linked<'K, 'V>) =
+            if isNull n then
+                cnt := !cnt + 1
+                Linked(key, value)
+            elif cmp.Equals(n.Key, key) then
+                n.Key <- key
+                n.Value <- value
+                n
+            else
+                n.Next <- addInPlaceUnsafe cmp cnt key value n.Next
+                n
+
         let rec add (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (value : 'V) (n : Linked<'K, 'V>) =
             if isNull n then
                 cnt := !cnt + 1
@@ -123,6 +134,9 @@ module internal HashMapOkasakiVirtualImplementation =
     [<AbstractClass>]
     type AbstractNode<'K, 'V>() =
         abstract member Remove : IEqualityComparer<'K> * ref<int> * uint32 * 'K -> AbstractNode<'K, 'V>
+        
+        abstract member AddInPlaceUnsafe : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
+        
         abstract member Add : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
         abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
@@ -140,6 +154,10 @@ module internal HashMapOkasakiVirtualImplementation =
 
         override x.Remove(_cmp : IEqualityComparer<'K>, _cnt : ref<int>, _hash : uint32, _key : 'K) =
             x :> _
+
+        override x.AddInPlaceUnsafe(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            cnt := !cnt + 1
+            NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
 
         override x.Add(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
@@ -183,7 +201,21 @@ module internal HashMapOkasakiVirtualImplementation =
                     Leaf.Create(x.Hash, x.Key, x.Value, Linked.remove cmp cnt key x.Next)
             else
                 x :> _
-
+        
+        override x.AddInPlaceUnsafe(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    x.Key <- key
+                    x.Value <- value
+                    x :> _
+                else
+                    x.Next <- Linked.addInPlaceUnsafe cmp cnt key value x.Next
+                    x :> _
+            else
+                cnt := !cnt + 1
+                let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                Node.Join(hash, n, x.Hash, x)
+                
         override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             if x.Hash = hash then
                 if cmp.Equals(key, x.Key) then
@@ -226,6 +258,20 @@ module internal HashMapOkasakiVirtualImplementation =
                 Empty<'K, 'V>.Instance
             else
                 x :> _
+
+        override x.AddInPlaceUnsafe(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    x.Key <- key
+                    x.Value <- value
+                    x :> _
+                else
+                    cnt := !cnt + 1
+                    Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked(key, value, null)) :> _
+            else
+                cnt := !cnt + 1
+                let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                Node.Join(hash, n, x.Hash, x)
 
         override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             if x.Hash = hash then
@@ -279,6 +325,17 @@ module internal HashMapOkasakiVirtualImplementation =
             else
                 x :> _
 
+        override x.AddInPlaceUnsafe(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            if matchPrefix hash x.Prefix x.Mask then
+                if zeroBit hash x.Mask then 
+                    x.Left <- x.Left.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
+                    x :> _
+                else 
+                    x.Right <- x.Right.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
+                    x :> _
+            else
+                cnt := !cnt + 1
+                Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
 
         override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             if matchPrefix hash x.Prefix x.Mask then
@@ -306,21 +363,81 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
 
     member x.Count = cnt
     member internal x.Root = root
+    
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
+    static member OfSeq(elements : seq<'K * 'V>) =  
+        let cmp = EqualityComparer<'K>.Default
+        let cnt = ref 0
+        let mutable r = HashMapOkasakiVirtualImplementation.Empty<'K, 'V>.Instance 
+        for (k, v) in elements do
+            let hash = cmp.GetHashCode k |> uint32
+            r <- r.AddInPlaceUnsafe(cmp, cnt, hash, k, v)
+        HashMapOkasakiVirtual<'K, 'V>(cmp, r, !cnt)
 
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
+    static member OfList(elements : list<'K * 'V>) =  
+        let cmp = EqualityComparer<'K>.Default
+        let cnt = ref 0
+        let mutable r = HashMapOkasakiVirtualImplementation.Empty<'K, 'V>.Instance 
+        for (k, v) in elements do
+            let hash = cmp.GetHashCode k |> uint32
+            r <- r.AddInPlaceUnsafe(cmp, cnt, hash, k, v)
+        HashMapOkasakiVirtual<'K, 'V>(cmp, r, !cnt)
+        
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
+    static member OfListUnoptimized(elements : list<'K * 'V>) =  
+        let cmp = EqualityComparer<'K>.Default
+        let cnt = ref 0
+        let mutable r = HashMapOkasakiVirtualImplementation.Empty<'K, 'V>.Instance 
+        for (k, v) in elements do
+            let hash = cmp.GetHashCode k |> uint32
+            r <- r.Add(cmp, cnt, hash, k, v)
+        HashMapOkasakiVirtual<'K, 'V>(cmp, r, !cnt)
+
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
+    static member OfArray(elements : array<'K * 'V>) =  
+        let cmp = EqualityComparer<'K>.Default
+        let cnt = ref 0
+        let mutable r = HashMapOkasakiVirtualImplementation.Empty<'K, 'V>.Instance 
+        for (k, v) in elements do
+            let hash = cmp.GetHashCode k |> uint32
+            r <- r.AddInPlaceUnsafe(cmp, cnt, hash, k, v)
+        HashMapOkasakiVirtual<'K, 'V>(cmp, r, !cnt)
+
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
     member x.ToSeq() = root.ToSeq()
 
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
     member x.Add(key : 'K, value : 'V) =
         let cnt = ref cnt
         let hash = cmp.GetHashCode key |> uint32
         let newRoot = root.Add(cmp, cnt, hash, key, value)
         HashMapOkasakiVirtual(cmp, newRoot, !cnt)
         
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
     member x.Remove(key : 'K) =
         let cnt = ref cnt
         let hash = cmp.GetHashCode key |> uint32
         let newRoot = root.Remove(cmp, cnt, hash, key)
         HashMapOkasakiVirtual(cmp, newRoot, !cnt)
         
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
     member x.TryFind(key : 'K) =
         let hash = cmp.GetHashCode key |> uint32
         root.TryFind(cmp, hash, key)
@@ -330,16 +447,17 @@ module HashMapOkasakiVirtual =
     [<GeneralizableValue>]
     let empty<'K, 'V> = HashMapOkasakiVirtual<'K, 'V>.Empty
 
-    let ofSeq (seq : seq<'K * 'V>) =
-        let mutable res = empty
-        for (k, v) in seq do res <- res.Add(k, v)
-        res
+    let inline ofSeq (seq : seq<'K * 'V>) =
+        HashMapOkasakiVirtual<'K, 'V>.OfSeq seq
 
     let inline ofList (list : list<'K * 'V>) = 
-        ofSeq list
+        HashMapOkasakiVirtual<'K, 'V>.OfList list
 
     let inline ofArray (arr : array<'K * 'V>) = 
-        ofSeq arr
+        HashMapOkasakiVirtual<'K, 'V>.OfArray arr
+        
+    let inline ofListUnoptimized (list : list<'K * 'V>) = 
+        HashMapOkasakiVirtual<'K, 'V>.OfListUnoptimized list
 
     let inline toSeq (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq()
     let inline toList (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq() |> Seq.toList
