@@ -11,7 +11,7 @@ open System.Runtime.Intrinsics.X86
 module internal HashMapOkasakiVirtualImplementation = 
     let inline mask (k : uint32) (m : uint32) = 
         #if NETCOREAPP3_0 
-        Bmi1.AndNot(k ||| (m - 1u), m)
+        Bmi1.AndNot(m, k ||| (m - 1u))
         #else
         //k &&& (m - 1u) // little endian
         (k ||| (m - 1u)) &&& ~~~m // big endian
@@ -121,6 +121,7 @@ module internal HashMapOkasakiVirtualImplementation =
         abstract member Add : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
         abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
+        abstract member ToSeq : unit -> seq<'K * 'V>
 
     type Empty<'K, 'V> private() =
         inherit AbstractNode<'K, 'V>()
@@ -138,6 +139,9 @@ module internal HashMapOkasakiVirtualImplementation =
         override x.Add(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
+
+        override x.ToSeq() =
+            Seq.empty
 
     and Leaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
@@ -186,6 +190,15 @@ module internal HashMapOkasakiVirtualImplementation =
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                 Node.Join(hash, n, x.Hash, x)
 
+        override x.ToSeq() =
+            seq {
+                yield x.Key, x.Value
+                let mutable n = x.Next
+                while not (isNull n) do
+                    yield n.Key, n.Value
+                    n <- n.Next
+            }
+
         new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
      
     and NoCollisionLeaf<'K, 'V> =
@@ -219,6 +232,9 @@ module internal HashMapOkasakiVirtualImplementation =
                 cnt := !cnt + 1
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                 Node.Join(hash, n, x.Hash, x)
+
+        override x.ToSeq() =
+            Seq.singleton(x.Key, x.Value)
 
         new(h : uint32, k : 'K, v : 'V) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v }
 
@@ -269,6 +285,8 @@ module internal HashMapOkasakiVirtualImplementation =
                 cnt := !cnt + 1
                 Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
 
+        override x.ToSeq() =    
+            Seq.append (x.Left.ToSeq()) (Seq.delay x.Right.ToSeq)
 
         new(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) = 
             { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
@@ -283,6 +301,8 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
 
     member x.Count = cnt
     member internal x.Root = root
+
+    member x.ToSeq() = root.ToSeq()
 
     member x.Add(key : 'K, value : 'V) =
         let cnt = ref cnt
@@ -315,6 +335,10 @@ module HashMapOkasakiVirtual =
 
     let inline ofArray (arr : array<'K * 'V>) = 
         ofSeq arr
+
+    let inline toSeq (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq()
+    let inline toList (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq() |> Seq.toList
+    let inline toArray (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq() |> Seq.toArray
 
     let inline add (key : 'K) (value : 'V) (map : HashMapOkasakiVirtual<'K, 'V>) =
         map.Add(key, value)

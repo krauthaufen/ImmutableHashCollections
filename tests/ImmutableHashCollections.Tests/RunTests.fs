@@ -299,6 +299,10 @@ module RunTests =
 
     [<EntryPoint>]
     let main args =
+        //let res = 
+        //    Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
+        //    |> Async.RunSynchronously
+
         let outDir = 
             let outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bench2")
             if not (Directory.Exists outDir) then Directory.CreateDirectory outDir |> ignore
