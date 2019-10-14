@@ -141,7 +141,6 @@ module internal HashMapOkasakiVirtualImplementation =
         abstract member Alter : IEqualityComparer<'K> * ref<int> * uint32 * 'K * (option<'V> -> option<'V>) -> AbstractNode<'K, 'V>
         abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
-        abstract member ToSeq : unit -> seq<'K * 'V>
 
     type Empty<'K, 'V> private() =
         inherit AbstractNode<'K, 'V>()
@@ -175,8 +174,6 @@ module internal HashMapOkasakiVirtualImplementation =
                 NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
 
 
-        override x.ToSeq() =
-            Seq.empty
 
     and Leaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
@@ -292,15 +289,6 @@ module internal HashMapOkasakiVirtualImplementation =
                     let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                     Node.Join(hash, n, x.Hash, x)
 
-        override x.ToSeq() =
-            seq {
-                yield x.Key, x.Value
-                let mutable n = x.Next
-                while not (isNull n) do
-                    yield n.Key, n.Value
-                    n <- n.Next
-            }
-
         new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
      
     and NoCollisionLeaf<'K, 'V> =
@@ -378,11 +366,7 @@ module internal HashMapOkasakiVirtualImplementation =
                     cnt := !cnt + 1
                     let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                     Node.Join(hash, n, x.Hash, x)
-                    
-                    
-        override x.ToSeq() =
-            Seq.singleton(x.Key, x.Value)
-
+           
         new(h : uint32, k : 'K, v : 'V) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v }
 
     and Node<'K, 'V> =
@@ -477,10 +461,7 @@ module internal HashMapOkasakiVirtualImplementation =
                     cnt := !cnt + 1
                     Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
 
-                    
-        override x.ToSeq() =    
-            Seq.append (x.Left.ToSeq()) (Seq.delay x.Right.ToSeq)
-
+  
         new(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) = 
             { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
         
@@ -490,7 +471,6 @@ module internal HashMapOkasakiVirtualImplementation =
 type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : AbstractNode<'K, 'V>, cnt : int) =
 
     static member Empty = HashMapOkasakiVirtual<'K, 'V>(EqualityComparer<'K>.Default, Empty.Instance, 0)
-    
 
     member x.Count = cnt
     member internal x.Root = root
@@ -531,8 +511,6 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
             r <- r.AddInPlaceUnsafe(cmp, cnt, hash, k, v)
         HashMapOkasakiVirtual<'K, 'V>(cmp, r, !cnt)
 
-    member x.ToSeq() = root.ToSeq()
-
     member x.Add(key : 'K, value : 'V) =
         let cnt = ref cnt
         let hash = cmp.GetHashCode key |> uint32
@@ -563,7 +541,64 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
         let hash = cmp.GetHashCode key |> uint32
         let newRoot = root.Alter(cmp, cnt, hash, key, update)
         HashMapOkasakiVirtual(cmp, newRoot, !cnt)
+
+    interface System.Collections.IEnumerable with 
+        member x.GetEnumerator() = new HashMapOkasakiVirtualEnumerator<_,_>(root) :> _
         
+    interface System.Collections.Generic.IEnumerable<'K * 'V> with 
+        member x.GetEnumerator() = new HashMapOkasakiVirtualEnumerator<_,_>(root) :> _
+
+and internal HashMapOkasakiVirtualEnumerator<'K, 'V>(root : AbstractNode<'K, 'V>) =
+    let mutable stack = [root]
+    let mutable linked : Linked<'K, 'V> = null
+    let mutable current = Unchecked.defaultof<'K * 'V>
+
+    member x.MoveNext() =
+        if isNull linked then
+            match stack with
+            | (:? Empty<'K, 'V>) :: rest ->
+                stack <- rest 
+                x.MoveNext()
+            | (:? NoCollisionLeaf<'K, 'V> as l) :: rest ->
+                stack <- rest
+                current <- l.Key, l.Value
+                true
+            | (:? Leaf<'K, 'V> as l) :: rest -> 
+                stack <- rest
+                current <- l.Key, l.Value
+                linked <- l.Next
+                true
+            | (:? Node<'K, 'V> as n) :: rest ->
+                stack <- n.Left :: n.Right :: rest
+                x.MoveNext()
+            | _ ->
+                false
+        else
+            current <- (linked.Key, linked.Value)
+            linked <- linked.Next
+            true
+    
+    member x.Current = current
+
+    member x.Reset() =
+        stack <- [root]
+        linked <- null
+        current <- Unchecked.defaultof<_>
+
+    member x.Dispose() =
+        stack <- []
+        linked <- null
+        current <- Unchecked.defaultof<_>
+
+    interface System.Collections.IEnumerator with
+        member x.MoveNext() = x.MoveNext()
+        member x.Current = x.Current :> obj
+        member x.Reset() = x.Reset()
+        
+    interface System.Collections.Generic.IEnumerator<'K * 'V> with
+        member x.Dispose() = x.Dispose()
+        member x.Current = x.Current
+
 
 module HashMapOkasakiVirtual =
 
@@ -582,9 +617,9 @@ module HashMapOkasakiVirtual =
     let inline ofListUnoptimized (list : list<'K * 'V>) = 
         HashMapOkasakiVirtual<'K, 'V>.OfListUnoptimized list
 
-    let inline toSeq (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq()
-    let inline toList (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq() |> Seq.toList
-    let inline toArray (m : HashMapOkasakiVirtual<'K, 'V>) = m.ToSeq() |> Seq.toArray
+    let inline toSeq (m : HashMapOkasakiVirtual<'K, 'V>) = m :> seq<_>
+    let inline toList (m : HashMapOkasakiVirtual<'K, 'V>) = m |> Seq.toList
+    let inline toArray (m : HashMapOkasakiVirtual<'K, 'V>) = m |> Seq.toArray
 
     let inline add (key : 'K) (value : 'V) (map : HashMapOkasakiVirtual<'K, 'V>) =
         map.Add(key, value)
