@@ -9,7 +9,7 @@ open FSharpx.Collections
 
 [<PlainExporter>]
 type UpdatePerformance() =
-    let mutable okasakiv = HashMapOkasakiVirtual.empty
+    let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
     let mutable fsharpx = PersistentHashMap.empty
@@ -24,7 +24,7 @@ type UpdatePerformance() =
 
     [<GlobalSetup>]
     member x.Setup() =
-        okasakiv <- HashMapOkasakiVirtual.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
+        okasakiv <- HashMapOkasaki.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
         fsharpmap <- Map.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
         fsharpx <- PersistentHashMap.ofSeq ([1..x.N] |> List.map (fun i -> i, i+1))
         sys <-
@@ -39,8 +39,8 @@ type UpdatePerformance() =
         PersistentHashMap.add key -123 fsharpx
         
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_update() =
-        HashMapOkasakiVirtual.add key -123 okasakiv
+    member x.HashMapOkasaki_update() =
+        HashMapOkasaki.add key -123 okasakiv
         
     [<Benchmark>]
     member x.FSharpMap_update() =
@@ -52,7 +52,7 @@ type UpdatePerformance() =
 
 [<PlainExporter>]
 type AddPerformance() =
-    let mutable okasakiv = HashMapOkasakiVirtual.empty
+    let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
     let mutable fsharpx = PersistentHashMap.empty
@@ -73,7 +73,7 @@ type AddPerformance() =
             [1.. x.N/2-1] @ [x.N/2+1 .. x.N] |> List.map (fun i ->
                 i, i
             )
-        okasakiv <- HashMapOkasakiVirtual.ofList list
+        okasakiv <- HashMapOkasaki.ofList list
         fsharpmap <- Map.ofList list
         fsharpx <- PersistentHashMap.ofSeq list
         sys <-
@@ -84,8 +84,8 @@ type AddPerformance() =
         key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_add() =
-        HashMapOkasakiVirtual.add key -123 okasakiv
+    member x.HashMapOkasaki_add() =
+        HashMapOkasaki.add key -123 okasakiv
         
     [<Benchmark>]
     member x.FSharpMap_add() =
@@ -101,7 +101,7 @@ type AddPerformance() =
 
 [<PlainExporter>]
 type RemovePerformance() =
-    let mutable okasakiv = HashMapOkasakiVirtual.empty
+    let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
     let mutable fsharpx = PersistentHashMap.empty
@@ -122,7 +122,7 @@ type RemovePerformance() =
             [1 .. x.N] |> List.map (fun i ->
                 i, i
             )
-        okasakiv <- HashMapOkasakiVirtual.ofList list
+        okasakiv <- HashMapOkasaki.ofList list
         fsharpmap <- Map.ofList list
         sys <-
             (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
@@ -132,8 +132,8 @@ type RemovePerformance() =
         key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_remove() =
-        HashMapOkasakiVirtual.remove key okasakiv
+    member x.HashMapOkasaki_remove() =
+        HashMapOkasaki.remove key okasakiv
         
     [<Benchmark>]
     member x.FSharpMap_remove() =
@@ -149,7 +149,7 @@ type RemovePerformance() =
 
 [<PlainExporter>]
 type FailingLookupPerformance() =
-    let mutable okasakiv = HashMapOkasakiVirtual.empty
+    let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
     let mutable fsharpx = PersistentHashMap.empty
@@ -170,7 +170,7 @@ type FailingLookupPerformance() =
             [1.. x.N/2-1] @ [x.N/2+1 .. x.N] |> List.map (fun i ->
                 i, i
             )
-        okasakiv <- HashMapOkasakiVirtual.ofList list
+        okasakiv <- HashMapOkasaki.ofList list
         fsharpmap <- Map.ofList list
         fsharpx <- PersistentHashMap.ofSeq list
         sys <-
@@ -181,8 +181,8 @@ type FailingLookupPerformance() =
         key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_tryFind() =
-        HashMapOkasakiVirtual.tryFind key okasakiv
+    member x.HashMapOkasaki_tryFind() =
+        HashMapOkasaki.tryFind key okasakiv
         
     [<Benchmark>]
     member x.FSharpMap_tryFind() =
@@ -198,7 +198,7 @@ type FailingLookupPerformance() =
  
 [<PlainExporter>]
 type WorkingLookupPerformance() =
-    let mutable okasakiv = HashMapOkasakiVirtual.empty
+    let mutable okasakiv = HashMapOkasaki.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
     let mutable fsharpx = PersistentHashMap.empty
@@ -219,7 +219,7 @@ type WorkingLookupPerformance() =
             [1 .. x.N] |> List.map (fun i ->
                 i, i*i
             )
-        okasakiv <- HashMapOkasakiVirtual.ofList list
+        okasakiv <- HashMapOkasaki.ofList list
         fsharpmap <- Map.ofList list
         fsharpx <- PersistentHashMap.ofSeq list
         sys <-
@@ -230,8 +230,8 @@ type WorkingLookupPerformance() =
         key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_tryFind() =
-        HashMapOkasakiVirtual.tryFind key okasakiv
+    member x.HashMapOkasaki_tryFind() =
+        HashMapOkasaki.tryFind key okasakiv
         
     [<Benchmark>]
     member x.FSharpMap_tryFind() =
@@ -264,12 +264,12 @@ type OfListPerformance() =
             )  
 
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_ofList() =
-        HashMapOkasakiVirtual.ofList list
+    member x.HashMapOkasaki_ofList() =
+        HashMapOkasaki.ofList list
         
     [<Benchmark>]
-    member x.HashMapOkasakiVirtual_ofListUnoptimized() =
-        HashMapOkasakiVirtual.ofListUnoptimized list
+    member x.HashMapOkasaki_ofListUnoptimized() =
+        HashMapOkasaki.ofListUnoptimized list
         
     [<Benchmark>]
     member x.FSharpX_ofList() =

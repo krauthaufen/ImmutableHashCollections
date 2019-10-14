@@ -90,9 +90,9 @@ Seems to improve things, but  the implementation of course gets uglier...
 |                    Method |    N |      Mean |     Error |    StdDev |    Median |
 |-------------------------- |----- |----------:|----------:|----------:|----------:|
 |        HashMapOkasaki_add |    0 |  28.67 ns | 0.5898 ns | 0.6556 ns |  28.54 ns |
-| HashMapOkasakiVirtual_add |    0 |  18.65 ns | 0.7888 ns | 0.7747 ns |  18.35 ns |
+| HashMapOkasaki_add |    0 |  18.65 ns | 0.7888 ns | 0.7747 ns |  18.35 ns |
 |        HashMapOkasaki_add |  100 | 116.25 ns | 2.3592 ns | 2.6223 ns | 115.21 ns |
-| HashMapOkasakiVirtual_add |  100 |  81.49 ns | 1.6575 ns | 4.5093 ns |  79.85 ns |
+| HashMapOkasaki_add |  100 |  81.49 ns | 1.6575 ns | 4.5093 ns |  79.85 ns |
 |        HashMapOkasaki_add | 1000 | 151.81 ns | 3.6731 ns | 4.6453 ns | 151.37 ns |
-| HashMapOkasakiVirtual_add | 1000 | 106.61 ns | 0.4800 ns | 0.4255 ns | 106.70 ns |
+| HashMapOkasaki_add | 1000 | 106.61 ns | 0.4800 ns | 0.4255 ns | 106.70 ns |
 ```

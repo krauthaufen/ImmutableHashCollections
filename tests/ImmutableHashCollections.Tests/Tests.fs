@@ -11,15 +11,15 @@ module Tests =
     let configReplay = { FsCheckConfig.defaultConfig with maxTest = 10000 ; replay = Some <| (1940624926, 296296394) }
 
     module Expect =
-        let equalMaps (m : Map<'a, 'b>) (hm : HashMapOkasakiVirtual<'a, 'b>) =
-            let a = hm |> HashMapOkasakiVirtual.toList |> List.sortBy fst
+        let equalMaps (m : Map<'a, 'b>) (hm : HashMapOkasaki<'a, 'b>) =
+            let a = hm |> HashMapOkasaki.toList |> List.sortBy fst
             let b = m |> Map.toList
             
             Expect.equal (Map.count m) (hm.Count) "Expect Equal Count"
             Expect.equal a b "Expected Equal Maps"
 
             for (k, v) in b do
-                match HashMapOkasakiVirtual.tryFind k hm with
+                match HashMapOkasaki.tryFind k hm with
                 | Some vh -> Expect.equal v vh "bad value"
                 | None -> failwith "bad"
 
@@ -36,35 +36,35 @@ module Tests =
     [<Tests>]
     let testSimpleTests =
 
-        testList "HashMapOkasakiVirtual" [
+        testList "HashMapOkasaki" [
             testPropertyWithConfig config10k "add" <| fun (m : Map<string, string>) ->
-                let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
+                let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
 
-                let hm = HashMapOkasakiVirtual.add "a" "b" hm
+                let hm = HashMapOkasaki.add "a" "b" hm
                 let m = Map.add "a" "b" m
                 Expect.equalMaps m hm
 
             testPropertyWithConfig config10k "remove" <| fun (m : Map<string, string>) ->
-                let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
+                let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
 
-                let hm = HashMapOkasakiVirtual.remove "a" hm
+                let hm = HashMapOkasaki.remove "a" hm
                 let m = Map.remove "a" m
                 Expect.equalMaps m hm
 
                 match m |> Map.toSeq |> Seq.tryHead with
                 | Some (k,_) ->
-                    let hm = HashMapOkasakiVirtual.remove k hm
+                    let hm = HashMapOkasaki.remove k hm
                     let m = Map.remove k m
                     Expect.equalMaps m hm
                 | None ->
                     ()
                     
             testPropertyWithConfig config10k "tryRemove" <| fun (m : Map<string, string>) ->
-                let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
+                let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
 
                 match m |> Map.toSeq |> Seq.tryHead with
                 | Some (k,mv) ->
-                    match HashMapOkasakiVirtual.tryRemove k hm with
+                    match HashMapOkasaki.tryRemove k hm with
                     | Some (value, rest) ->
                         Expect.equalMaps (Map.remove k m) rest
                         Expect.equal value mv "bad value"
@@ -74,19 +74,19 @@ module Tests =
                 | None ->
                     ()
             testProperty "alter" <| fun (m : Map<string, string>) ->
-                let hm = HashMapOkasakiVirtual.ofSeq (Map.toSeq m)
+                let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
 
-                let hm = HashMapOkasakiVirtual.alter "a" (fun o -> Some "a") hm
+                let hm = HashMapOkasaki.alter "a" (fun o -> Some "a") hm
                 let m = Map.alter "a"  (fun o -> Some "a") m
                 Expect.equalMaps m hm
 
                 match m |> Map.toSeq |> Seq.tryHead with
                 | Some (k,_) ->
-                    let hm1 = HashMapOkasakiVirtual.alter k (function Some o -> None | _ -> failwith "bad") hm
+                    let hm1 = HashMapOkasaki.alter k (function Some o -> None | _ -> failwith "bad") hm
                     let m1 = Map.alter k (function Some o -> None | _ -> failwith "bad") m
                     Expect.equalMaps m1 hm1
 
-                    let hm1 = HashMapOkasakiVirtual.alter k (function Some o -> Some (o + "a") | _ -> failwith "bad") hm
+                    let hm1 = HashMapOkasaki.alter k (function Some o -> Some (o + "a") | _ -> failwith "bad") hm
                     let m1 = Map.alter k (function Some o -> Some (o + "a") | _ -> failwith "bad") m
                     Expect.equalMaps m1 hm1
 
