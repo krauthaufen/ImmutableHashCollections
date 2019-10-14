@@ -16,7 +16,7 @@ type UpdatePerformance() =
     let mutable fsharpx = PersistentHashMap.empty
     let mutable key = 0
 
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
@@ -196,7 +196,7 @@ type WorkingLookupPerformance() =
 
     let mutable key = 0
 
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     [<GlobalSetup>]
@@ -236,7 +236,7 @@ type WorkingLookupPerformance() =
 [<PlainExporter>]
 type OfListPerformance() =    
         
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10000)>] //0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     val mutable public N : int
 
     let mutable list = []
@@ -297,8 +297,20 @@ module RunTests =
         let csv = toCSV res
         File.WriteAllText(outPath, csv)
 
+    open System.Runtime.Intrinsics.X86
+
+    let inline highestBitMask x =
+        let mutable x = x
+        x <- x ||| (x >>> 1)
+        x <- x ||| (x >>> 2)
+        x <- x ||| (x >>> 4)
+        x <- x ||| (x >>> 8)
+        x <- x ||| (x >>> 16)
+        x ^^^ (x >>> 1)
+
     [<EntryPoint>]
     let main args =
+   
         //let tree = HashMapOkasakiVirtual.ofList (List.map (fun i -> i, i) [ 1 .. 100000 ])
 
         //while true do
@@ -310,14 +322,14 @@ module RunTests =
             if not (Directory.Exists outDir) then Directory.CreateDirectory outDir |> ignore
             outDir
             
-        Environment.CurrentDirectory <- outDir
+        //Environment.CurrentDirectory <- outDir
 
         runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
-        runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
-        runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
-        runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
-        runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
-        runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
+        //runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
+        //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
+        //runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
+        //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
+        //runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
 
         //Tests.runTestsWithArgs defaultConfig args Tests.testSimpleTests |> ignore
 

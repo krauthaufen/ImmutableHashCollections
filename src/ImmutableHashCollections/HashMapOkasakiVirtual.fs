@@ -2,13 +2,20 @@
 
 open System.Collections
 open System.Collections.Generic
+#if NETCOREAPP3_0 
+open System.Runtime.Intrinsics.X86
+#endif
+
 
 [<AutoOpen>]
 module internal HashMapOkasakiVirtualImplementation = 
     let inline mask (k : uint32) (m : uint32) = 
+        #if NETCOREAPP3_0 
+        Bmi1.AndNot(k ||| (m - 1u), m)
+        #else
         //k &&& (m - 1u) // little endian
         (k ||| (m - 1u)) &&& ~~~m // big endian
-
+        #endif
     let inline matchPrefix (k : uint32) (p : uint32) (m : uint32) =
         mask k m = p
 
@@ -19,6 +26,9 @@ module internal HashMapOkasakiVirtualImplementation =
         System.Object.ReferenceEquals(a, b)
 
     let inline highestBitMask x =
+        #if NETCOREAPP3_0
+        0x80000000u >>> int (Lzcnt.LeadingZeroCount x)
+        #else
         let mutable x = x
         x <- x ||| (x >>> 1)
         x <- x ||| (x >>> 2)
@@ -26,6 +36,7 @@ module internal HashMapOkasakiVirtualImplementation =
         x <- x ||| (x >>> 8)
         x <- x ||| (x >>> 16)
         x ^^^ (x >>> 1)
+        #endif
 
     let inline lowestBitMask x =
         x &&& (~~~x + 1u)
