@@ -134,10 +134,9 @@ module internal HashMapOkasakiVirtualImplementation =
     [<AbstractClass>]
     type AbstractNode<'K, 'V>() =
         abstract member Remove : IEqualityComparer<'K> * ref<int> * uint32 * 'K -> AbstractNode<'K, 'V>
-        
         abstract member AddInPlaceUnsafe : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
-        
         abstract member Add : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
+        abstract member Alter : IEqualityComparer<'K> * ref<int> * uint32 * 'K * (option<'V> -> option<'V>) -> AbstractNode<'K, 'V>
         abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
         abstract member ToSeq : unit -> seq<'K * 'V>
@@ -162,6 +161,14 @@ module internal HashMapOkasakiVirtualImplementation =
         override x.Add(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
+
+        override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
+            match update None with
+            | None -> x :> _
+            | Some value ->
+                cnt := !cnt + 1
+                NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
+
 
         override x.ToSeq() =
             Seq.empty
@@ -227,6 +234,36 @@ module internal HashMapOkasakiVirtualImplementation =
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                 Node.Join(hash, n, x.Hash, x)
 
+        override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    match update (Some x.Value) with
+                    | None ->
+                        // remove
+                        cnt := !cnt - 1
+                        match Linked.destruct x.Next with
+                        | ValueSome (struct (k, v, rest)) ->
+                            Leaf.Create(x.Hash, k, v, rest)
+                        | ValueNone ->
+                            Empty<'K, 'V>.Instance
+                    | Some value ->
+                        // update
+                        Leaf(x.Hash, x.Key, value, x.Next) :> _
+                else
+                    // in linked?
+                    let n = Linked.alter cmp cnt key update x.Next
+                    if n == x.Next then x :> _
+                    else Leaf(x.Hash, x.Key, x.Value, n) :> _
+            else
+                // other hash => not contained
+                match update None with
+                | None -> x :> _
+                | Some value ->
+                    // add
+                    cnt := !cnt + 1
+                    let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                    Node.Join(hash, n, x.Hash, x)
+
         override x.ToSeq() =
             seq {
                 yield x.Key, x.Value
@@ -283,7 +320,31 @@ module internal HashMapOkasakiVirtualImplementation =
                 cnt := !cnt + 1
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                 Node.Join(hash, n, x.Hash, x)
-
+        
+        override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    match update (Some x.Value) with
+                    | Some value -> 
+                        NoCollisionLeaf(x.Hash, x.Key, value) :> _
+                    | None -> 
+                        cnt := !cnt - 1
+                        Empty.Instance
+                else
+                    match update None with
+                    | None -> x :> _
+                    | Some value ->
+                        cnt := !cnt + 1
+                        Leaf(x.Hash, x.Key, x.Value, Linked(key, value, null)) :> _
+            else
+                match update None with
+                | None -> x :> _
+                | Some value ->
+                    cnt := !cnt + 1
+                    let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                    Node.Join(hash, n, x.Hash, x)
+                    
+                    
         override x.ToSeq() =
             Seq.singleton(x.Key, x.Value)
 
@@ -347,6 +408,24 @@ module internal HashMapOkasakiVirtualImplementation =
                 cnt := !cnt + 1
                 Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
 
+        override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
+            if matchPrefix hash x.Prefix x.Mask then
+                if zeroBit hash x.Mask then 
+                    let ll = x.Left.Alter(cmp, cnt, hash, key, update)
+                    if ll == x.Left then x :> _
+                    else Node(x.Prefix, x.Mask, ll, x.Right) :> _
+                else
+                    let rr = x.Right.Alter(cmp, cnt, hash, key, update)
+                    if rr == x.Right then x :> _
+                    else Node(x.Prefix, x.Mask, x.Left, rr) :> _
+            else
+                match update None with
+                | None -> x :> _
+                | Some value ->
+                    cnt := !cnt + 1
+                    Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
+
+                    
         override x.ToSeq() =    
             Seq.append (x.Left.ToSeq()) (Seq.delay x.Right.ToSeq)
 
@@ -442,6 +521,16 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
         let hash = cmp.GetHashCode key |> uint32
         root.TryFind(cmp, hash, key)
 
+    #if NETCOREAPP3_0
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    #endif
+    member x.Alter(key : 'K, update : option<'V> -> option<'V>) =
+        let cnt = ref cnt
+        let hash = cmp.GetHashCode key |> uint32
+        let newRoot = root.Alter(cmp, cnt, hash, key, update)
+        HashMapOkasakiVirtual(cmp, newRoot, !cnt)
+        
+
 module HashMapOkasakiVirtual =
 
     [<GeneralizableValue>]
@@ -471,3 +560,6 @@ module HashMapOkasakiVirtual =
 
     let inline tryFind (key : 'K) (map : HashMapOkasakiVirtual<'K, 'V>) =
         map.TryFind(key)
+
+    let inline alter (key : 'K) (update : option<'V> -> option<'V>) (map : HashMapOkasakiVirtual<'K, 'V>) =
+        map.Alter(key, update)
