@@ -13,3 +13,5 @@ Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkD
 
 * [Lookup (existing)](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Lookup---existing)
 * [Lookup (nonexisting)](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Lookup-nonexisting)
+* [Add](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Add)
+* [Remove](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Remove)
