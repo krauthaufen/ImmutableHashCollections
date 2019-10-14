@@ -79,92 +79,150 @@ module internal HashMapOkasakiVirtualImplementation =
             if isNull n then ValueNone
             else ValueSome(struct (n.Key, n.Value, n.Next))
             
-        let rec remove (cnt : ref<int>) (key : 'K) (n : Linked<'K, 'V>) =
+        let rec remove (key : 'K) (n : Linked<'K, 'V>) =
             if isNull n then
                 null
             elif Unchecked.equals n.Key key then 
-                cnt := !cnt - 1
                 n.Next
             else
-                let rest = remove cnt key n.Next
+                let rest = remove key n.Next
                 if rest == n.Next then n
                 else Linked(n.Key, n.Value, rest)
 
-        let rec tryRemove (cnt : ref<int>) (key : 'K) (n : Linked<'K, 'V>) =
+        let rec tryRemove (key : 'K) (n : Linked<'K, 'V>) =
             if isNull n then
                 None
             elif Unchecked.equals n.Key key then 
-                cnt := !cnt - 1
                 Some (n.Value, n.Next)
             else
-                match tryRemove cnt key n.Next with
+                match tryRemove key n.Next with
                 | Some (value, rest) ->
                     Some(value, Linked(n.Key, n.Value, rest))
                 | None ->
                     None
 
     [<AbstractClass>]
-    type HashMapOkasakiNode<'K, 'V>() =
-        abstract member Add : uint32 * 'K * 'V -> HashMapOkasakiNode<'K, 'V>
+    type AbstractNode<'K, 'V>() =
+        abstract member Remove : uint32 * 'K -> AbstractNode<'K, 'V>
+        abstract member Add : uint32 * 'K * 'V -> AbstractNode<'K, 'V>
+        abstract member TryFind : uint32 * 'K -> option<'V>
+        abstract member IsEmpty : bool
 
-    type HashMapOkasakiEmptyNode<'K, 'V> private() =
-        inherit HashMapOkasakiNode<'K, 'V>()
-        static let instance = HashMapOkasakiEmptyNode<'K, 'V>() :> HashMapOkasakiNode<_,_>
+    type Empty<'K, 'V> private() =
+        inherit AbstractNode<'K, 'V>()
+        static let instance = Empty<'K, 'V>() :> AbstractNode<_,_>
         static member Instance = instance
 
-        override x.Add(hash : uint32, key : 'K, value : 'V) =
-            HashMapOkasakiLeafNode<'K, 'V>(hash, key, value, null) :> _
+        override x.IsEmpty = true
 
-    and HashMapOkasakiLeafNode<'K, 'V> =
-        inherit HashMapOkasakiNode<'K, 'V>
+        override x.TryFind(_, _) =
+            None
+
+        override x.Remove(hash : uint32, key : 'K) =
+            x :> _
+
+        override x.Add(hash : uint32, key : 'K, value : 'V) =
+            Leaf<'K, 'V>(hash, key, value, null) :> _
+
+    and Leaf<'K, 'V> =
+        inherit AbstractNode<'K, 'V>
         val mutable public Hash : uint32
         val mutable public Key : 'K
         val mutable public Value : 'V
         val mutable public Next : Linked<'K, 'V>
+        
+        override x.IsEmpty = false
+        
+        override x.TryFind(hash : uint32, key : 'K) =   
+            if hash = x.Hash then
+                if Unchecked.equals key x.Key then 
+                    Some x.Value
+                else
+                    Linked.tryFind key x.Next
+            else
+                None
+
+        override x.Remove(hash : uint32, key : 'K) =
+            if hash = x.Hash then
+                if Unchecked.equals key x.Key then
+                    match Linked.destruct x.Next with
+                    | ValueSome (struct (k, v, rest)) ->
+                        Leaf(hash, k, v, rest) :> _
+                    | ValueNone ->
+                        Empty<'K, 'V>.Instance
+                else
+                    Leaf(x.Hash, x.Key, x.Value, Linked.remove key x.Next) :> _
+            else
+                x :> _
 
         override x.Add(hash : uint32, key : 'K, value : 'V) =
             if x.Hash = hash then
                 if Unchecked.equals key x.Key then
-                    HashMapOkasakiLeafNode<'K, 'V>(x.Hash, key, value, x.Next) :> _
+                    Leaf<'K, 'V>(x.Hash, key, value, x.Next) :> _
                 else
-                    HashMapOkasakiLeafNode<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add key value x.Next) :> _
+                    Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add key value x.Next) :> _
             else
-                let n = HashMapOkasakiLeafNode<'K, 'V>(hash, key, value, null)
-                HashMapOkasakiInnerNode.Join(hash, n, x.Hash, x)
+                let n = Leaf<'K, 'V>(hash, key, value, null)
+                Node.Join(hash, n, x.Hash, x)
 
-        new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit HashMapOkasakiNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
+        new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
         
-    and HashMapOkasakiInnerNode<'K, 'V> =
-        inherit HashMapOkasakiNode<'K, 'V>
+    and Node<'K, 'V> =
+        inherit AbstractNode<'K, 'V>
         val mutable public Prefix : uint32
         val mutable public Mask : uint32
-        val mutable public Left : HashMapOkasakiNode<'K, 'V>
-        val mutable public Right : HashMapOkasakiNode<'K, 'V>
+        val mutable public Left : AbstractNode<'K, 'V>
+        val mutable public Right : AbstractNode<'K, 'V>
         
+        static member Join (p0 : uint32, t0 : AbstractNode<'K, 'V>, p1 : uint32, t1 : AbstractNode<'K, 'V>) : AbstractNode<'K,'V>=
+            let m = branchingBit p0 p1
+            if zeroBit p0 m then Node(mask p0 m, m, t0, t1) :> AbstractNode<_,_>
+            else Node(mask p0 m, m, t1, t0) :> AbstractNode<_,_>
+
+        static member Create(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) =
+            if r.IsEmpty then l
+            elif l.IsEmpty then r
+            else Node(p, m, l, r) :> _
+            
+        override x.IsEmpty = false
+        
+        override x.TryFind(hash : uint32, key : 'K) =
+            if matchPrefix hash x.Prefix x.Mask then
+                if zeroBit hash x.Mask then 
+                    x.Left.TryFind(hash, key)
+                else 
+                    x.Right.TryFind(hash, key)
+            else
+                None
+        override x.Remove(hash : uint32, key : 'K) =
+            if matchPrefix hash x.Prefix x.Mask then
+                if zeroBit hash x.Mask then 
+                    Node.Create(x.Prefix, x.Mask, x.Left.Remove(hash, key), x.Right)
+                else 
+                    Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(hash, key))
+            else
+                x :> _
+
+
         override x.Add(hash : uint32, key : 'K, value : 'V) =
             if matchPrefix hash x.Prefix x.Mask then
                 if zeroBit hash x.Mask then 
-                    HashMapOkasakiInnerNode(x.Prefix, x.Mask, x.Left.Add(hash, key, value), x.Right) :> _
+                    Node(x.Prefix, x.Mask, x.Left.Add(hash, key, value), x.Right) :> _
                 else 
-                    HashMapOkasakiInnerNode(x.Prefix, x.Mask, x.Left, x.Right.Add(hash, key, value)) :> _
+                    Node(x.Prefix, x.Mask, x.Left, x.Right.Add(hash, key, value)) :> _
             else
-                HashMapOkasakiInnerNode.Join(x.Prefix, x, hash, HashMapOkasakiLeafNode(hash, key, value, null))
-
-        static member Join (p0 : uint32, t0 : HashMapOkasakiNode<'K, 'V>, p1 : uint32, t1 : HashMapOkasakiNode<'K, 'V>) : HashMapOkasakiNode<'K,'V>=
-            let m = branchingBit p0 p1
-            if zeroBit p0 m then HashMapOkasakiInnerNode(mask p0 m, m, t0, t1) :> HashMapOkasakiNode<_,_>
-            else HashMapOkasakiInnerNode(mask p0 m, m, t1, t0) :> HashMapOkasakiNode<_,_>
+                Node.Join(x.Prefix, x, hash, Leaf(hash, key, value, null))
 
 
-        new(p : uint32, m : uint32, l : HashMapOkasakiNode<'K, 'V>, r : HashMapOkasakiNode<'K, 'V>) = 
-            { inherit HashMapOkasakiNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
+        new(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) = 
+            { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
         
 
 
 [<Struct>]
-type HashMapOkasakiVirtual<'K, 'V> internal(root : HashMapOkasakiNode<'K, 'V>) =
+type HashMapOkasakiVirtual<'K, 'V> internal(root : AbstractNode<'K, 'V>) =
 
-    static member Empty = HashMapOkasakiVirtual<'K, 'V>(HashMapOkasakiEmptyNode.Instance)
+    static member Empty = HashMapOkasakiVirtual<'K, 'V>(Empty.Instance)
     
     member internal x.Root = root
 
@@ -172,7 +230,15 @@ type HashMapOkasakiVirtual<'K, 'V> internal(root : HashMapOkasakiNode<'K, 'V>) =
         let hash = Unchecked.hash key |> uint32
         let newRoot = root.Add(hash, key, value)
         HashMapOkasakiVirtual newRoot
-
+        
+    member x.Remove(key : 'K) =
+        let hash = Unchecked.hash key |> uint32
+        let newRoot = root.Remove(hash, key)
+        HashMapOkasakiVirtual newRoot
+        
+    member x.TryFind(key : 'K) =
+        let hash = Unchecked.hash key |> uint32
+        root.TryFind(hash, key)
 
 module HashMapOkasakiVirtual =
 
@@ -192,3 +258,9 @@ module HashMapOkasakiVirtual =
 
     let inline add (key : 'K) (value : 'V) (map : HashMapOkasakiVirtual<'K, 'V>) =
         map.Add(key, value)
+
+    let inline remove (key : 'K) (map : HashMapOkasakiVirtual<'K, 'V>) =
+        map.Remove(key)
+
+    let inline tryFind (key : 'K) (map : HashMapOkasakiVirtual<'K, 'V>) =
+        map.TryFind(key)
