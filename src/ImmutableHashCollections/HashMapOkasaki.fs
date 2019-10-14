@@ -1,5 +1,7 @@
 namespace ImmutableHashCollections
 
+#if OLD
+
 open System.Collections
 open System.Collections.Generic
 
@@ -402,3 +404,4 @@ module HashMapOkasaki =
     let inline tryFind (key : 'K) (map : HashMapOkasaki<'K, 'V>) =
         map.TryFind(key)
 
+#endif

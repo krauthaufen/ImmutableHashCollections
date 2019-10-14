@@ -9,6 +9,9 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DefineConstants>SMALL</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="Tests.fs" />
     <Compile Include="RunTests.fs" />
