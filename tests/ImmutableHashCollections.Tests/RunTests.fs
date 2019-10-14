@@ -5,6 +5,7 @@ open BenchmarkDotNet.Attributes
 open BenchmarkDotNet.Running
 open System.Collections.Immutable
 open BenchmarkDotNet.Reports
+open FSharpx.Collections
 
 [<PlainExporter>]
 type UpdatePerformance() =
@@ -12,7 +13,7 @@ type UpdatePerformance() =
     let mutable okasakiv = HashMapOkasakiVirtual.empty
     let mutable fsharpmap = Map.empty
     let mutable sys = ImmutableDictionary.Empty
-
+    let mutable fsharpx = PersistentHashMap.empty
     let mutable key = 0
 
     [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
@@ -23,7 +24,7 @@ type UpdatePerformance() =
         okasaki <- HashMapOkasaki.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
         okasakiv <- HashMapOkasakiVirtual.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
         fsharpmap <- Map.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
-
+        fsharpx <- PersistentHashMap.ofSeq ([1..x.N] |> List.map (fun i -> i, i+1))
         sys <-
             (ImmutableDictionary.Empty, [1..x.N]) ||> List.fold (fun d k ->
                 d.SetItem(k, k)
@@ -34,6 +35,10 @@ type UpdatePerformance() =
     [<Benchmark>]
     member x.HashMapOkasaki_update() =
         HashMapOkasaki.add key -123 okasaki
+        
+    //[<Benchmark>]
+    //member x.FSharpX_update() =
+    //    PersistentHashMap.add key -123 fsharpx
         
     [<Benchmark>]
     member x.HashMapOkasakiVirtual_update() =
@@ -227,8 +232,28 @@ type WorkingLookupPerformance() =
     member x.ImmutableDictionary_tryFind() =
         sys.TryGetValue(key)
        
-          
+      
+[<PlainExporter>]
+type OfListPerformance() =    
         
+    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    val mutable public N : int
+
+    let mutable list = []
+    [<GlobalSetup>]
+    member x.Setup() =
+        list <- 
+            [1 .. x.N] |> List.map (fun i ->
+                i, i*i
+            )  
+
+    [<Benchmark>]
+    member x.HashMapOkasakiVirtual_ofList() =
+        HashMapOkasakiVirtual.ofList list
+        
+    [<Benchmark>]
+    member x.FSharpMap_ofList() =
+        Map.ofList list
         
 
 
@@ -292,6 +317,7 @@ module RunTests =
         runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
         runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
         runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
+        runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
 
         //Tests.runTestsWithArgs defaultConfig args Tests.testSimpleTests |> ignore
 

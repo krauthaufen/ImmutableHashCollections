@@ -118,15 +118,15 @@ module internal HashMapOkasakiVirtualImplementation =
 
         override x.IsEmpty = true
 
-        override x.TryFind(_, _, _) =
+        override x.TryFind(_cmp : IEqualityComparer<'K>, _hash : uint32, _key : 'K) =
             None
 
-        override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
+        override x.Remove(_cmp : IEqualityComparer<'K>, _cnt : ref<int>, _hash : uint32, _key : 'K) =
             x :> _
 
-        override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+        override x.Add(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
-            Leaf<'K, 'V>(hash, key, value, null) :> _
+            NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
 
     and Leaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
@@ -135,6 +135,10 @@ module internal HashMapOkasakiVirtualImplementation =
         val mutable public Value : 'V
         val mutable public Hash : uint32
         
+        static member Create(hash : uint32, key : 'K, value : 'V, next : Linked<'K, 'V>) =
+            if isNull next then NoCollisionLeaf(hash, key, value) :> AbstractNode<'K, 'V>
+            else Leaf(hash, key, value, next) :> AbstractNode<'K, 'V>
+
         override x.IsEmpty = false
         
         override x.TryFind(cmp : IEqualityComparer<'K>, hash : uint32, key : 'K) =   
@@ -152,11 +156,11 @@ module internal HashMapOkasakiVirtualImplementation =
                     cnt := !cnt - 1
                     match Linked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
-                        Leaf(hash, k, v, rest) :> _
+                        Leaf.Create(hash, k, v, rest)
                     | ValueNone ->
                         Empty<'K, 'V>.Instance
                 else
-                    Leaf(x.Hash, x.Key, x.Value, Linked.remove cmp cnt key x.Next) :> _
+                    Leaf.Create(x.Hash, x.Key, x.Value, Linked.remove cmp cnt key x.Next)
             else
                 x :> _
 
@@ -168,11 +172,45 @@ module internal HashMapOkasakiVirtualImplementation =
                     Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add cmp cnt key value x.Next) :> _
             else
                 cnt := !cnt + 1
-                let n = Leaf<'K, 'V>(hash, key, value, null)
+                let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
                 Node.Join(hash, n, x.Hash, x)
 
         new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
+     
+    and NoCollisionLeaf<'K, 'V> =
+        inherit AbstractNode<'K, 'V>
+        val mutable public Key : 'K
+        val mutable public Value : 'V
+        val mutable public Hash : uint32
         
+        override x.IsEmpty = false
+        
+        override x.TryFind(cmp : IEqualityComparer<'K>, hash : uint32, key : 'K) =   
+            if hash = x.Hash && cmp.Equals(key, x.Key) then 
+                Some x.Value
+            else
+                None
+
+        override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
+            if hash = x.Hash && cmp.Equals(key, x.Key) then
+                cnt := !cnt - 1
+                Empty<'K, 'V>.Instance
+            else
+                x :> _
+
+        override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    NoCollisionLeaf<'K, 'V>(x.Hash, key, value) :> _
+                else
+                    Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add cmp cnt key value null) :> _
+            else
+                cnt := !cnt + 1
+                let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                Node.Join(hash, n, x.Hash, x)
+
+        new(h : uint32, k : 'K, v : 'V) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v }
+
     and Node<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Prefix : uint32
@@ -218,7 +256,7 @@ module internal HashMapOkasakiVirtualImplementation =
                     Node(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, cnt, hash, key, value)) :> _
             else
                 cnt := !cnt + 1
-                Node.Join(x.Prefix, x, hash, Leaf(hash, key, value, null))
+                Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
 
 
         new(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) = 
@@ -231,6 +269,8 @@ type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : 
 
     static member Empty = HashMapOkasakiVirtual<'K, 'V>(EqualityComparer<'K>.Default, Empty.Instance, 0)
     
+
+    member x.Count = cnt
     member internal x.Root = root
 
     member x.Add(key : 'K, value : 'V) =
