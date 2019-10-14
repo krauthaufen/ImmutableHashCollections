@@ -44,15 +44,16 @@ module internal HashMapOkasakiVirtualImplementation =
         new(k, v, n) = { Key = k; Value = v; Next = n }
 
     module Linked =
-        let rec add (key : 'K) (value : 'V) (n : Linked<'K, 'V>) =
+        let rec add (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (value : 'V) (n : Linked<'K, 'V>) =
             if isNull n then
+                cnt := !cnt + 1
                 Linked(key, value)
-            elif Unchecked.equals n.Key key then
+            elif cmp.Equals(n.Key, key) then
                 Linked(key, value, n.Next)
             else
-                Linked(n.Key, n.Value, add key value n.Next)
+                Linked(n.Key, n.Value, add cmp cnt key value n.Next)
                
-        let rec alter (cnt : ref<int>) (key : 'K) (update : option<'V> -> option<'V>) (n : Linked<'K, 'V>) =
+        let rec alter (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (update : option<'V> -> option<'V>) (n : Linked<'K, 'V>) =
             if isNull n then
                 match update None with
                 | Some value -> 
@@ -60,7 +61,7 @@ module internal HashMapOkasakiVirtualImplementation =
                     Linked(key, value)
                 | None ->
                     null
-            elif Unchecked.equals n.Key key then
+            elif cmp.Equals(n.Key, key) then
                 match update (Some n.Value) with
                 | Some value -> 
                     Linked(key, value, n.Next)
@@ -68,44 +69,46 @@ module internal HashMapOkasakiVirtualImplementation =
                     cnt := !cnt - 1
                     n.Next
             else
-                Linked(n.Key, n.Value, alter cnt key update n.Next)
+                Linked(n.Key, n.Value, alter cmp cnt key update n.Next)
                
-        let rec tryFind (key : 'K) (n : Linked<'K, 'V>) =
+        let rec tryFind (cmp : IEqualityComparer<'K>) (key : 'K) (n : Linked<'K, 'V>) =
             if isNull n then None
-            elif Unchecked.equals n.Key key then Some n.Value
-            else tryFind key n.Next
+            elif cmp.Equals(n.Key, key) then Some n.Value
+            else tryFind cmp key n.Next
 
         let destruct (n : Linked<'K, 'V>) =
             if isNull n then ValueNone
             else ValueSome(struct (n.Key, n.Value, n.Next))
             
-        let rec remove (key : 'K) (n : Linked<'K, 'V>) =
+        let rec remove (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (n : Linked<'K, 'V>) =
             if isNull n then
                 null
-            elif Unchecked.equals n.Key key then 
+            elif cmp.Equals(n.Key, key) then 
+                cnt := !cnt - 1
                 n.Next
             else
-                let rest = remove key n.Next
+                let rest = remove cmp cnt key n.Next
                 if rest == n.Next then n
                 else Linked(n.Key, n.Value, rest)
 
-        let rec tryRemove (key : 'K) (n : Linked<'K, 'V>) =
+        let rec tryRemove (cmp : IEqualityComparer<'K>) (cnt : ref<int>) (key : 'K) (n : Linked<'K, 'V>) =
             if isNull n then
-                None
-            elif Unchecked.equals n.Key key then 
-                Some (n.Value, n.Next)
+                ValueNone
+            elif cmp.Equals(n.Key, key) then 
+                cnt := !cnt - 1
+                ValueSome (n.Value, n.Next)
             else
-                match tryRemove key n.Next with
-                | Some (value, rest) ->
-                    Some(value, Linked(n.Key, n.Value, rest))
-                | None ->
-                    None
+                match tryRemove cmp cnt key n.Next with
+                | ValueSome (value, rest) ->
+                    ValueSome(value, Linked(n.Key, n.Value, rest))
+                | ValueNone ->
+                    ValueNone
 
     [<AbstractClass>]
     type AbstractNode<'K, 'V>() =
-        abstract member Remove : uint32 * 'K -> AbstractNode<'K, 'V>
-        abstract member Add : uint32 * 'K * 'V -> AbstractNode<'K, 'V>
-        abstract member TryFind : uint32 * 'K -> option<'V>
+        abstract member Remove : IEqualityComparer<'K> * ref<int> * uint32 * 'K -> AbstractNode<'K, 'V>
+        abstract member Add : IEqualityComparer<'K> * ref<int> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
+        abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
 
     type Empty<'K, 'V> private() =
@@ -115,53 +118,56 @@ module internal HashMapOkasakiVirtualImplementation =
 
         override x.IsEmpty = true
 
-        override x.TryFind(_, _) =
+        override x.TryFind(_, _, _) =
             None
 
-        override x.Remove(hash : uint32, key : 'K) =
+        override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
             x :> _
 
-        override x.Add(hash : uint32, key : 'K, value : 'V) =
+        override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
+            cnt := !cnt + 1
             Leaf<'K, 'V>(hash, key, value, null) :> _
 
     and Leaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
-        val mutable public Hash : uint32
+        val mutable public Next : Linked<'K, 'V>
         val mutable public Key : 'K
         val mutable public Value : 'V
-        val mutable public Next : Linked<'K, 'V>
+        val mutable public Hash : uint32
         
         override x.IsEmpty = false
         
-        override x.TryFind(hash : uint32, key : 'K) =   
+        override x.TryFind(cmp : IEqualityComparer<'K>, hash : uint32, key : 'K) =   
             if hash = x.Hash then
-                if Unchecked.equals key x.Key then 
+                if cmp.Equals(key, x.Key) then 
                     Some x.Value
                 else
-                    Linked.tryFind key x.Next
+                    Linked.tryFind cmp key x.Next
             else
                 None
 
-        override x.Remove(hash : uint32, key : 'K) =
+        override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
             if hash = x.Hash then
-                if Unchecked.equals key x.Key then
+                if cmp.Equals(key, x.Key) then
+                    cnt := !cnt - 1
                     match Linked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
                         Leaf(hash, k, v, rest) :> _
                     | ValueNone ->
                         Empty<'K, 'V>.Instance
                 else
-                    Leaf(x.Hash, x.Key, x.Value, Linked.remove key x.Next) :> _
+                    Leaf(x.Hash, x.Key, x.Value, Linked.remove cmp cnt key x.Next) :> _
             else
                 x :> _
 
-        override x.Add(hash : uint32, key : 'K, value : 'V) =
+        override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             if x.Hash = hash then
-                if Unchecked.equals key x.Key then
+                if cmp.Equals(key, x.Key) then
                     Leaf<'K, 'V>(x.Hash, key, value, x.Next) :> _
                 else
-                    Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add key value x.Next) :> _
+                    Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add cmp cnt key value x.Next) :> _
             else
+                cnt := !cnt + 1
                 let n = Leaf<'K, 'V>(hash, key, value, null)
                 Node.Join(hash, n, x.Hash, x)
 
@@ -186,31 +192,32 @@ module internal HashMapOkasakiVirtualImplementation =
             
         override x.IsEmpty = false
         
-        override x.TryFind(hash : uint32, key : 'K) =
+        override x.TryFind(cmp : IEqualityComparer<'K>, hash : uint32, key : 'K) =
             if matchPrefix hash x.Prefix x.Mask then
                 if zeroBit hash x.Mask then 
-                    x.Left.TryFind(hash, key)
+                    x.Left.TryFind(cmp, hash, key)
                 else 
-                    x.Right.TryFind(hash, key)
+                    x.Right.TryFind(cmp, hash, key)
             else
                 None
-        override x.Remove(hash : uint32, key : 'K) =
+        override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
             if matchPrefix hash x.Prefix x.Mask then
                 if zeroBit hash x.Mask then 
-                    Node.Create(x.Prefix, x.Mask, x.Left.Remove(hash, key), x.Right)
+                    Node.Create(x.Prefix, x.Mask, x.Left.Remove(cmp, cnt, hash, key), x.Right)
                 else 
-                    Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(hash, key))
+                    Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(cmp, cnt, hash, key))
             else
                 x :> _
 
 
-        override x.Add(hash : uint32, key : 'K, value : 'V) =
+        override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             if matchPrefix hash x.Prefix x.Mask then
                 if zeroBit hash x.Mask then 
-                    Node(x.Prefix, x.Mask, x.Left.Add(hash, key, value), x.Right) :> _
+                    Node(x.Prefix, x.Mask, x.Left.Add(cmp, cnt, hash, key, value), x.Right) :> _
                 else 
-                    Node(x.Prefix, x.Mask, x.Left, x.Right.Add(hash, key, value)) :> _
+                    Node(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, cnt, hash, key, value)) :> _
             else
+                cnt := !cnt + 1
                 Node.Join(x.Prefix, x, hash, Leaf(hash, key, value, null))
 
 
@@ -220,25 +227,27 @@ module internal HashMapOkasakiVirtualImplementation =
 
 
 [<Struct>]
-type HashMapOkasakiVirtual<'K, 'V> internal(root : AbstractNode<'K, 'V>) =
+type HashMapOkasakiVirtual<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : AbstractNode<'K, 'V>, cnt : int) =
 
-    static member Empty = HashMapOkasakiVirtual<'K, 'V>(Empty.Instance)
+    static member Empty = HashMapOkasakiVirtual<'K, 'V>(EqualityComparer<'K>.Default, Empty.Instance, 0)
     
     member internal x.Root = root
 
     member x.Add(key : 'K, value : 'V) =
-        let hash = Unchecked.hash key |> uint32
-        let newRoot = root.Add(hash, key, value)
-        HashMapOkasakiVirtual newRoot
+        let cnt = ref cnt
+        let hash = cmp.GetHashCode key |> uint32
+        let newRoot = root.Add(cmp, cnt, hash, key, value)
+        HashMapOkasakiVirtual(cmp, newRoot, !cnt)
         
     member x.Remove(key : 'K) =
-        let hash = Unchecked.hash key |> uint32
-        let newRoot = root.Remove(hash, key)
-        HashMapOkasakiVirtual newRoot
+        let cnt = ref cnt
+        let hash = cmp.GetHashCode key |> uint32
+        let newRoot = root.Remove(cmp, cnt, hash, key)
+        HashMapOkasakiVirtual(cmp, newRoot, !cnt)
         
     member x.TryFind(key : 'K) =
-        let hash = Unchecked.hash key |> uint32
-        root.TryFind(hash, key)
+        let hash = cmp.GetHashCode key |> uint32
+        root.TryFind(cmp, hash, key)
 
 module HashMapOkasakiVirtual =
 
