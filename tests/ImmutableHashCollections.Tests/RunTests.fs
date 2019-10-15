@@ -241,13 +241,13 @@ type WorkingLookupPerformance() =
     member x.HashMapOkasaki_tryFind() =
         HashMapOkasaki.tryFind key okasakiv
         
-    [<Benchmark>]
-    member x.FSharpMap_tryFind() =
-        Map.tryFind key fsharpmap
+    //[<Benchmark>]
+    //member x.FSharpMap_tryFind() =
+    //    Map.tryFind key fsharpmap
         
-    [<Benchmark>]
-    member x.FSharpX_containsKey() =
-        PersistentHashMap.containsKey key fsharpx
+    //[<Benchmark>]
+    //member x.FSharpX_containsKey() =
+    //    PersistentHashMap.containsKey key fsharpx
         
     [<Benchmark>]
     member x.ImmutableDictionary_tryFind() =
@@ -290,6 +290,7 @@ type OfListPerformance() =
 
 
 module RunTests =
+    open System.Runtime.Intrinsics.X86
 
     let toCSV (res : BenchmarkDotNet.Reports.Summary) =
         let benchmarks = 
@@ -325,12 +326,64 @@ module RunTests =
     open System.IO
 
     let runBenchmark<'T> (outPath : string) =
+        //let cfg = BenchmarkDotNet.Configs.DebugInProcessConfig()
         let res = BenchmarkRunner.Run<'T>()
         let csv = toCSV res
         File.WriteAllText(outPath, csv)
 
+    let getMask (p0 : uint32) (p1 : uint32) =
+        #if NETCOREAPP3_0 
+        if p0 = p1 then failwith "baasdasdasd"
+
+        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1)
+        let offset = 32u - lz
+        let len = lz
+
+        let offsetb = 31u - lz
+        let lenb = 1u
+
+        (lenb <<< 24) ||| 
+        (offsetb <<< 16) ||| 
+        (len <<< 8) ||| 
+        (offset)
+        #else
+        //lowestBitMask (p0 ^^^ p1) // little endian
+        highestBitMask (p0 ^^^ p1) // big endian
+        #endif
+
     [<EntryPoint>]
     let main args =
+        //let a = 0xF8DEADBEu
+        //let b = 0xF4FAFAFAu 
+        //let m = getMask a b 
+
+        //Bmi1.BitFieldExtract(a, uint16 (m >>> 16)) |> printfn "a[b] = %X"
+        //Bmi1.BitFieldExtract(b, uint16 (m >>> 16)) |> printfn "b[b] = %X"
+        
+        //Bmi1.BitFieldExtract(a, uint16 m) |> printfn "a[..b-1] = %X"
+        //Bmi1.BitFieldExtract(b, uint16 m) |> printfn "b[..b-1] = %X"
+        //System.Environment.Exit 0
+        //let o = Options()
+
+        //let data = [1,3; 2,5]
+        //let (xMin, xMax) = ((Int32.MaxValue, Int32.MinValue), data) ||> List.fold (fun (l,h) (x,_) -> (min l x), (max h x))
+        //let (yMin, yMax) = ((Int32.MaxValue, Int32.MinValue), data) ||> List.fold (fun (l,h) (_,y) -> (min l y), (max h y))
+
+        //let chart = 
+        //    Chart.Scatter(
+        //        [1,3; 2,5], 
+        //        Options = Options(
+        //            showLine = true,
+        //            allValuesSuffix = "ns",
+        //            hAxis = Axis(minValue = 0, title = "N"),
+        //            vAxis = Axis(minValue = 0, title = "time")
+        //        )
+        //    )
+
+        //    //|> Chart.WithApiKey ""
+
+        //File.WriteAllText(@"C:\Users\Schorsch\Desktop\chart.html", chart.GetHtml())
+
         let res = 
             Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
             |> Async.RunSynchronously
@@ -340,13 +393,13 @@ module RunTests =
             if not (Directory.Exists outDir) then Directory.CreateDirectory outDir |> ignore
             outDir
             
-        //Environment.CurrentDirectory <- outDir
+        ////Environment.CurrentDirectory <- outDir
 
         runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
-        runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
-        runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
-        runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
-        runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
-        runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
+        //runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
+        //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
+        //runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
+        //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
+        //runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
         0
 

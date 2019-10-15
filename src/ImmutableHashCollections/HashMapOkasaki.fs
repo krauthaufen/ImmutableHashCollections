@@ -2,34 +2,15 @@
 
 open System.Collections
 open System.Collections.Generic
-#if NETCOREAPP3_0 
+#if NETCOREAPP3_0 && USE_INTRINSICS
 open System.Runtime.Intrinsics.X86
 #endif
 
 
 [<AutoOpen>]
 module internal HashMapOkasakiImplementation = 
-    let inline mask (k : uint32) (m : uint32) = 
-        #if NETCOREAPP3_0 
-        Bmi1.AndNot((m <<< 1) - 1u, k)
-        #else
-        //k &&& (m - 1u) // little endian
-        //(k ||| (m - 1u)) &&& ~~~m // big endian
-        k &&& ~~~((m <<< 1) - 1u)
-        #endif
-    let inline matchPrefix (k : uint32) (p : uint32) (m : uint32) =
-        mask k m = p
 
-    let inline zeroBit (k : uint32) (m : uint32) =
-        (k &&& m) = 0u
-
-    let inline (==) (a : ^a) (b : ^a) =
-        System.Object.ReferenceEquals(a, b)
-
-    let inline highestBitMask x =
-        #if NETCOREAPP3_0
-        0x80000000u >>> int (Lzcnt.LeadingZeroCount x)
-        #else
+    let inline private highestBitMask x =
         let mutable x = x
         x <- x ||| (x >>> 1)
         x <- x ||| (x >>> 2)
@@ -37,14 +18,54 @@ module internal HashMapOkasakiImplementation =
         x <- x ||| (x >>> 8)
         x <- x ||| (x >>> 16)
         x ^^^ (x >>> 1)
+
+    let inline getPrefix (k : uint32) (m : uint32) = 
+        #if NETCOREAPP3_0 && USE_INTRINSICS
+        k
+        #else
+        k &&& ~~~((m <<< 1) - 1u)
         #endif
 
-    let inline lowestBitMask x =
-        x &&& (~~~x + 1u)
+    #if NETCOREAPP3_0 && USE_INTRINSICS
+    let inline zeroBit (k : uint32) (m : uint32) =
+        Bmi1.BitFieldExtract(k, uint16 m)
+    #else
+    let inline zeroBit (k : uint32) (m : uint32) =
+        if (k &&& m) <> 0u then 1u else 0u
+    #endif
+        
+    #if NETCOREAPP3_0 && USE_INTRINSICS 
+    let inline matchPrefixAndGetBit (hash : uint32) (prefix : uint32) (m : uint32) =
+        let lz = Lzcnt.LeadingZeroCount (hash ^^^ prefix)
+        let b = Bmi1.BitFieldExtract(hash, uint16 m)
+        if lz >= (m >>> 16) then b
+        else 2u
+        //getPrefix hash m = prefix
+    #else
+    let inline matchPrefixAndGetBit (hash : uint32) (prefix : uint32) (m : uint32) =
+        if getPrefix hash m = prefix then zeroBit hash m
+        else 2u
+    #endif
 
-    let inline branchingBit (p0 : uint32) (p1 : uint32) =
+
+
+
+    /// 9 ops
+    let inline getMask (p0 : uint32) (p1 : uint32) =
+        #if NETCOREAPP3_0 && USE_INTRINSICS 
+        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1)
+        (lz <<< 16) ||| 0x100u ||| (31u - lz)
+        #else
         //lowestBitMask (p0 ^^^ p1) // little endian
         highestBitMask (p0 ^^^ p1) // big endian
+        #endif
+
+
+
+
+    let inline (==) (a : ^a) (b : ^a) =
+        System.Object.ReferenceEquals(a, b)
+
 
     [<AllowNullLiteral>]
     type Linked<'K, 'V> =
@@ -140,7 +161,7 @@ module internal HashMapOkasakiImplementation =
         abstract member TryFind : IEqualityComparer<'K> * uint32 * 'K -> option<'V>
         abstract member IsEmpty : bool
 
-    type Empty<'K, 'V> private() =
+    type [<Sealed>] Empty<'K, 'V> private() =
         inherit AbstractNode<'K, 'V>()
         static let instance = Empty<'K, 'V>() :> AbstractNode<_,_>
         static member Instance = instance
@@ -158,31 +179,45 @@ module internal HashMapOkasakiImplementation =
 
         override x.AddInPlaceUnsafe(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
+            #if USE_NO_COLLISION
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
-
+            #else
+            Leaf(hash, key, value, null) :> _
+            #endif
         override x.Add(_cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
             cnt := !cnt + 1
+            #if USE_NO_COLLISION
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
-
+            #else
+            Leaf(hash, key, value, null) :> _
+            #endif
         override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
             match update None with
             | None -> x :> _
             | Some value ->
                 cnt := !cnt + 1
+                #if USE_NO_COLLISION
                 NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
+                #else
+                Leaf(hash, key, value, null) :> _
+                #endif
 
 
 
-    and Leaf<'K, 'V> =
+    and [<Sealed>] Leaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Next : Linked<'K, 'V>
         val mutable public Key : 'K
         val mutable public Value : 'V
         val mutable public Hash : uint32
         
-        static member Create(hash : uint32, key : 'K, value : 'V, next : Linked<'K, 'V>) =
+        static member inline Create(hash : uint32, key : 'K, value : 'V, next : Linked<'K, 'V>) =
+            #if USE_NO_COLLISION
             if isNull next then NoCollisionLeaf(hash, key, value) :> AbstractNode<'K, 'V>
             else Leaf(hash, key, value, next) :> AbstractNode<'K, 'V>
+            #else
+            Leaf(hash, key, value, next) :> AbstractNode<'K, 'V>
+            #endif
 
         override x.IsEmpty = false
         
@@ -243,7 +278,11 @@ module internal HashMapOkasakiImplementation =
                     x :> _
             else
                 cnt := !cnt + 1
+                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                #else
+                let n = Leaf(hash, key, value, null)
+                #endif
                 Node.Join(hash, n, x.Hash, x)
                 
         override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
@@ -254,7 +293,11 @@ module internal HashMapOkasakiImplementation =
                     Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add cmp cnt key value x.Next) :> _
             else
                 cnt := !cnt + 1
+                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                #else
+                let n = Leaf(hash, key, value, null)
+                #endif
                 Node.Join(hash, n, x.Hash, x)
 
         override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
@@ -284,12 +327,17 @@ module internal HashMapOkasakiImplementation =
                 | Some value ->
                     // add
                     cnt := !cnt + 1
+                    #if USE_NO_COLLISION
                     let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
+                    #else
+                    let n = Leaf(hash, key, value, null)
+                    #endif
                     Node.Join(hash, n, x.Hash, x)
 
         new(h : uint32, k : 'K, v : 'V, n : Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
      
-    and NoCollisionLeaf<'K, 'V> =
+    #if USE_NO_COLLISION
+    and [<Sealed>] NoCollisionLeaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Key : 'K
         val mutable public Value : 'V
@@ -366,8 +414,9 @@ module internal HashMapOkasakiImplementation =
                     Node.Join(hash, n, x.Hash, x)
            
         new(h : uint32, k : 'K, v : 'V) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v }
+    #endif
 
-    and Node<'K, 'V> =
+    and [<Sealed>] Node<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Prefix : uint32
         val mutable public Mask : uint32
@@ -375,9 +424,9 @@ module internal HashMapOkasakiImplementation =
         val mutable public Right : AbstractNode<'K, 'V>
         
         static member Join (p0 : uint32, t0 : AbstractNode<'K, 'V>, p1 : uint32, t1 : AbstractNode<'K, 'V>) : AbstractNode<'K,'V>=
-            let m = branchingBit p0 p1
-            if zeroBit p0 m then Node(mask p0 m, m, t0, t1) :> AbstractNode<_,_>
-            else Node(mask p0 m, m, t1, t0) :> AbstractNode<_,_>
+            let m = getMask p0 p1
+            if zeroBit p0 m = 0u then Node(getPrefix p0 m, m, t0, t1) :> AbstractNode<_,_>
+            else Node(getPrefix p0 m, m, t1, t0) :> AbstractNode<_,_>
 
         static member Create(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) =
             if r.IsEmpty then l
@@ -387,83 +436,95 @@ module internal HashMapOkasakiImplementation =
         override x.IsEmpty = false
         
         override x.TryFind(cmp : IEqualityComparer<'K>, hash : uint32, key : 'K) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    x.Left.TryFind(cmp, hash, key)
-                else 
-                    x.Right.TryFind(cmp, hash, key)
-            else
-                None
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then x.Left.TryFind(cmp, hash, key)
+            elif m = 1u then x.Right.TryFind(cmp, hash, key)
+            else None
+
         override x.Remove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    Node.Create(x.Prefix, x.Mask, x.Left.Remove(cmp, cnt, hash, key), x.Right)
-                else 
-                    Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(cmp, cnt, hash, key))
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                Node.Create(x.Prefix, x.Mask, x.Left.Remove(cmp, cnt, hash, key), x.Right)
+            elif m = 1u then
+                Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(cmp, cnt, hash, key))
             else
                 x :> _
 
         override x.TryRemove(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    match x.Left.TryRemove(cmp, cnt, hash, key) with
-                    | ValueSome (struct(value, ll)) ->
-                        ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, ll, x.Right)))
-                    | ValueNone ->
-                        ValueNone
-                else
-                    match x.Right.TryRemove(cmp, cnt, hash, key) with
-                    | ValueSome (struct(value, rr)) ->
-                        ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, x.Left, rr)))
-                    | ValueNone ->
-                        ValueNone
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                match x.Left.TryRemove(cmp, cnt, hash, key) with
+                | ValueSome (struct(value, ll)) ->
+                    ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, ll, x.Right)))
+                | ValueNone ->
+                    ValueNone
+            elif m = 1u then
+                match x.Right.TryRemove(cmp, cnt, hash, key) with
+                | ValueSome (struct(value, rr)) ->
+                    ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, x.Left, rr)))
+                | ValueNone ->
+                    ValueNone
             else
                 ValueNone
 
         override x.AddInPlaceUnsafe(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    x.Left <- x.Left.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
-                    x :> _
-                else 
-                    x.Right <- x.Right.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
-                    x :> _
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                x.Left <- x.Left.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
+                x :> _
+            elif m = 1u then 
+                x.Right <- x.Right.AddInPlaceUnsafe(cmp, cnt, hash, key, value)
+                x :> _
             else
                 cnt := !cnt + 1
-                Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
+                #if USE_NO_COLLISION
+                let n = NoCollisionLeaf(hash, key, value)
+                #else
+                let n = Leaf(hash, key, value, null)
+                #endif
+                Node.Join(x.Prefix, x, hash, n)
 
         override x.Add(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, value : 'V) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    Node(x.Prefix, x.Mask, x.Left.Add(cmp, cnt, hash, key, value), x.Right) :> _
-                else 
-                    Node(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, cnt, hash, key, value)) :> _
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                Node(x.Prefix, x.Mask, x.Left.Add(cmp, cnt, hash, key, value), x.Right) :> _
+            elif m = 1u then 
+                Node(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, cnt, hash, key, value)) :> _
             else
                 cnt := !cnt + 1
-                Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
+                #if USE_NO_COLLISION
+                let n = NoCollisionLeaf(hash, key, value)
+                #else
+                let n = Leaf(hash, key, value, null)
+                #endif
+                Node.Join(x.Prefix, x, hash, n)
 
         override x.Alter(cmp : IEqualityComparer<'K>, cnt : ref<int>, hash : uint32, key : 'K, update : option<'V> -> option<'V>) =
-            if matchPrefix hash x.Prefix x.Mask then
-                if zeroBit hash x.Mask then 
-                    let ll = x.Left.Alter(cmp, cnt, hash, key, update)
-                    if ll == x.Left then x :> _
-                    else Node(x.Prefix, x.Mask, ll, x.Right) :> _
-                else
-                    let rr = x.Right.Alter(cmp, cnt, hash, key, update)
-                    if rr == x.Right then x :> _
-                    else Node(x.Prefix, x.Mask, x.Left, rr) :> _
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                let ll = x.Left.Alter(cmp, cnt, hash, key, update)
+                if ll == x.Left then x :> _
+                else Node(x.Prefix, x.Mask, ll, x.Right) :> _
+            elif m = 1u then
+                let rr = x.Right.Alter(cmp, cnt, hash, key, update)
+                if rr == x.Right then x :> _
+                else Node(x.Prefix, x.Mask, x.Left, rr) :> _
             else
                 match update None with
                 | None -> x :> _
                 | Some value ->
                     cnt := !cnt + 1
-                    Node.Join(x.Prefix, x, hash, NoCollisionLeaf(hash, key, value))
+                    #if USE_NO_COLLISION
+                    let n = NoCollisionLeaf(hash, key, value)
+                    #else
+                    let n = Leaf(hash, key, value, null)
+                    #endif
+                    Node.Join(x.Prefix, x, hash, n)
 
   
         new(p : uint32, m : uint32, l : AbstractNode<'K, 'V>, r : AbstractNode<'K, 'V>) = 
             { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
         
-
 
 [<Struct>]
 type HashMapOkasaki<'K, 'V> internal(cmp : IEqualityComparer<'K>, root : AbstractNode<'K, 'V>, cnt : int) =
@@ -557,10 +618,12 @@ and internal HashMapOkasakiEnumerator<'K, 'V>(root : AbstractNode<'K, 'V>) =
             | (:? Empty<'K, 'V>) :: rest ->
                 stack <- rest 
                 x.MoveNext()
+            #if USE_NO_COLLISION
             | (:? NoCollisionLeaf<'K, 'V> as l) :: rest ->
                 stack <- rest
                 current <- l.Key, l.Value
                 true
+            #endif
             | (:? Leaf<'K, 'V> as l) :: rest -> 
                 stack <- rest
                 current <- l.Key, l.Value

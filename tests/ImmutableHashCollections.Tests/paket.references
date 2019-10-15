@@ -5,3 +5,4 @@ Expecto
 Expecto.FsCheck
 Expecto.VisualStudio.TestAdapter
 System.Collections.Immutable
+XPlot.GoogleCharts

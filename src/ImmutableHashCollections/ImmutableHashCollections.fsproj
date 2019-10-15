@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;netcoreapp3.0</TargetFrameworks>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <RootNamespace>ImmutableHashCollections</RootNamespace>
     <AssemblyName>ImmutableHashCollections</AssemblyName>
     <Name>ImmutableHashCollections</Name>
@@ -12,6 +12,9 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <!-- Optional: Include PDB in the built .nupkg -->
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DefineConstants>TRACE;USE_INTRINSICS;USE_NO_COLLISION</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Remove="Scripts\**" />
