@@ -7,8 +7,8 @@ Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkD
 * `ImmutableDictionary` is the ImmutableDictionary from `System.Collections.Immutable`
 * `FSharpX` uses `PersistentHashMap` from FSharpx.Collections
 * `FSharpMap` is the standard search tree implementation from [FSharp.Core](https://github.com/dotnet/fsharp/blob/master/src/fsharp/FSharp.Core/map.fs) which is not really comparable but gives us a clue where the implementation stands
-* `HAMT` is the V5 implementation from [HAMT.NET](https://github.com/alexandrnikitin/HAMT.NET) **no benchmarks yet**
-
+* `HAMT` is the V5 implementation from [HAMT.NET](https://github.com/alexandrnikitin/HAMT.NET) (**no benchmarks yet**)
+* `ImTools` is the implementation from [ImTools](https://github.com/dadhi/ImTools) (**no benchmarks yet**)
 
 ### Results
 
