@@ -15,278 +15,369 @@ module Constants =
     let maxIter = 100
     #endif
 
-[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type UpdatePerformance() =
-    let mutable okasakiv = HashMapOkasaki.empty
-    let mutable fsharpmap = Map.empty
-    let mutable sys = ImmutableDictionary.Empty
-    let mutable fsharpx = PersistentHashMap.empty
-    let mutable key = 0
+type Instance =
+    {
+        okasaki     : HashMapOkasaki<int, int>
+        fsharp      : Map<int, int>
+        system      : ImmutableDictionary<int, int>
+        fsharpx     : PersistentHashMap<int, int>
+        hamt        : HAMT.NET.V5.ImmutableDictionary<int, int>
 
+        existing    : int[]
+        nonExisting : int[]
+    }
+
+module Instance = 
+    let create (n : int) =
+        let rand = System.Random()
+
+        let numbers = 
+            let mutable cnt = 0
+            let mutable taken = Set.empty
+            while cnt < n do
+                let n = rand.Next()
+                if not (Set.contains n taken) then 
+                    taken <- Set.add n taken
+                    cnt <- cnt + 1
+            taken
+            
+        let nonExisting =
+            let mutable cnt = 0
+            let mutable taken = Set.empty
+            while cnt < n do
+                let n = rand.Next()
+                if not (Set.contains n taken) && not (Set.contains n numbers) then 
+                    taken <- Set.add n taken
+                    cnt <- cnt + 1
+            taken
+            
+
+        let list =
+            numbers |> Set.toList |> List.map (fun i ->
+                i, i
+            )
+        {
+            okasaki = HashMapOkasaki.ofList list
+            fsharp = Map.ofList list
+            fsharpx = PersistentHashMap.ofSeq list
+            system =
+                (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
+                    d.SetItem(k, v)
+                )
+            hamt =
+                (HAMT.NET.V5.ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
+                    d.Add(k, v)
+                )
+
+            nonExisting = Set.toArray nonExisting
+            existing = Set.toArray numbers
+        }
+
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
+type UpdateBenchmark() =
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
 
+    let mutable instance = Instance.create 0
+
     [<GlobalSetup>]
     member x.Setup() =
-        okasakiv <- HashMapOkasaki.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
-        fsharpmap <- Map.ofList ([1..x.N] |> List.map (fun i -> i, i+1))
-        fsharpx <- PersistentHashMap.ofSeq ([1..x.N] |> List.map (fun i -> i, i+1))
-        sys <-
-            (ImmutableDictionary.Empty, [1..x.N]) ||> List.fold (fun d k ->
-                d.SetItem(k, k)
-            )
+        instance <- Instance.create x.N
 
-        key <- x.N / 2
 
-    [<Benchmark>]
-    member x.FSharpX_update() =
-        PersistentHashMap.add key -123 fsharpx
-        
     [<Benchmark>]
     member x.HashMapOkasaki_update() =
-        HashMapOkasaki.add key -123 okasakiv
+        let mutable h = instance.okasaki
+        for key in instance.existing do
+            h <- HashMapOkasaki.add key -123 h
         
     [<Benchmark>]
     member x.FSharpMap_update() =
-        Map.add key -123 fsharpmap
+        let mutable h = instance.fsharp
+        for key in instance.existing do
+            h <- Map.add key -123 h
+        
+    [<Benchmark>]
+    member x.HAMT_update() =
+        let mutable h = instance.hamt
+        for key in instance.existing do
+            h <- h.Add(key, -123)
+        
+    [<Benchmark>]
+    member x.FSharpX_update() =
+        let mutable h = instance.fsharpx
+        for key in instance.existing do
+            h <- PersistentHashMap.add key -123 h
         
     [<Benchmark>]
     member x.ImmutableDictionary_update() =
-        sys.SetItem(key, -123)
+        let mutable h = instance.system
+        for key in instance.existing do
+            h <- h.SetItem(key, -123)
 
 [<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type AddPerformance() =
-    let mutable okasakiv = HashMapOkasaki.empty
-    let mutable fsharpmap = Map.empty
-    let mutable sys = ImmutableDictionary.Empty
-    let mutable fsharpx = PersistentHashMap.empty
-
-    let mutable key = 0
-
+type AddBenchmark() =
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
 
-    [<GlobalSetup>]
-    member x.Seup() =
-        
-        let list =
-            [1.. x.N/2-1] @ [x.N/2+1 .. x.N] |> List.map (fun i ->
-                i, i
-            )
-        okasakiv <- HashMapOkasaki.ofList list
-        fsharpmap <- Map.ofList list
-        fsharpx <- PersistentHashMap.ofSeq list
-        sys <-
-            (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
-                d.SetItem(k, v)
-            )
+    let mutable instance = Instance.create 0
 
-        key <- x.N / 2
+    [<GlobalSetup>]
+    member x.Setup() =
+        instance <- Instance.create x.N
+
 
     [<Benchmark>]
     member x.HashMapOkasaki_add() =
-        HashMapOkasaki.add key -123 okasakiv
+        let mutable h = instance.okasaki
+        for key in instance.nonExisting do
+            h <- HashMapOkasaki.add key -123 h
         
     [<Benchmark>]
     member x.FSharpMap_add() =
-        Map.add key -123 fsharpmap
-      
+        let mutable h = instance.fsharp
+        for key in instance.nonExisting do
+            h <- Map.add key -123 h
+        
+    [<Benchmark>]
+    member x.HAMT_add() =
+        let mutable h = instance.hamt
+        for key in instance.nonExisting do
+            h <- h.Add(key, -123)
+        
     [<Benchmark>]
     member x.FSharpX_add() =
-        PersistentHashMap.add key -123 fsharpx
-            
+        let mutable h = instance.fsharpx
+        for key in instance.nonExisting do
+            h <- PersistentHashMap.add key -123 h
+        
     [<Benchmark>]
     member x.ImmutableDictionary_add() =
-        sys.SetItem(key, -123)
+        let mutable h = instance.system
+        for key in instance.nonExisting do
+            h <- h.SetItem(key, -123)
 
 [<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type RemovePerformance() =
-    let mutable okasakiv = HashMapOkasaki.empty
-    let mutable fsharpmap = Map.empty
-    let mutable sys = ImmutableDictionary.Empty
-    let mutable fsharpx = PersistentHashMap.empty
-
-    let mutable key = 0
-
+type RemoveBenchmark() =
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
 
+    let mutable instance = Instance.create 0
+
     [<GlobalSetup>]
-    member x.Seup() =
-        
-        let list =
-            [1 .. x.N] |> List.map (fun i ->
-                i, i
-            )
-        okasakiv <- HashMapOkasaki.ofList list
-        fsharpmap <- Map.ofList list
-        sys <-
-            (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
-                d.SetItem(k, v)
-            )
-        fsharpx <- PersistentHashMap.ofSeq list
-        key <- x.N / 2
+    member x.Setup() =
+        instance <- Instance.create x.N
+
 
     [<Benchmark>]
     member x.HashMapOkasaki_remove() =
-        HashMapOkasaki.remove key okasakiv
+        let mutable h = instance.okasaki
+        for key in instance.existing do
+            h <- HashMapOkasaki.remove key h
         
     [<Benchmark>]
     member x.FSharpMap_remove() =
-        Map.remove key fsharpmap
+        let mutable h = instance.fsharp
+        for key in instance.existing do
+            h <- Map.remove key h
+        
+    //[<Benchmark>]
+    //member x.HAMT_update() =
+    //    let mutable h = instance.hamt
+    //    for key in instance.existing do
+    //        h <- h.Remove key
         
     [<Benchmark>]
     member x.FSharpX_remove() =
-        PersistentHashMap.remove key fsharpx
+        let mutable h = instance.fsharpx
+        for key in instance.existing do
+            h <- PersistentHashMap.remove key h
         
     [<Benchmark>]
     member x.ImmutableDictionary_remove() =
-        sys.Remove(key)
+        let mutable h = instance.system
+        for key in instance.existing do
+            h <- h.Remove key
 
 [<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type FailingLookupPerformance() =
-    let mutable okasakiv = HashMapOkasaki.empty
-    let mutable fsharpmap = Map.empty
-    let mutable sys = ImmutableDictionary.Empty
-    let mutable fsharpx = PersistentHashMap.empty
-
-    let mutable key = 0
-
+type PositiveLookupBenchmark() =
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
 
+    let mutable instance = Instance.create 0
+
     [<GlobalSetup>]
-    member x.Seup() =
-        
-        let list =
-            [1.. x.N/2-1] @ [x.N/2+1 .. x.N] |> List.map (fun i ->
-                i, i
-            )
-        okasakiv <- HashMapOkasaki.ofList list
-        fsharpmap <- Map.ofList list
-        fsharpx <- PersistentHashMap.ofSeq list
-        sys <-
-            (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
-                d.SetItem(k, v)
-            )
+    member x.Setup() =
+        instance <- Instance.create x.N
 
-        key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasaki_tryFind() =
-        HashMapOkasaki.tryFind key okasakiv
+    member x.HashMapOkasaki_containsKey() =
+        let h = instance.okasaki
+        for key in instance.existing do
+            HashMapOkasaki.containsKey key h |> ignore
         
     [<Benchmark>]
-    member x.FSharpMap_tryFind() =
-        Map.tryFind key fsharpmap
+    member x.FSharpMap_containsKey() =
+        let h = instance.fsharp
+        for key in instance.existing do
+            Map.containsKey key h |> ignore
+        
+    [<Benchmark>]
+    member x.HAMT_containsKey() =
+        let h = instance.hamt
+        for key in instance.existing do
+            h.ContainsKey key |> ignore
         
     [<Benchmark>]
     member x.FSharpX_containsKey() =
-        PersistentHashMap.containsKey key fsharpx
+        let h = instance.fsharpx
+        for key in instance.existing do
+            PersistentHashMap.containsKey key h |> ignore
         
     [<Benchmark>]
-    member x.ImmutableDictionary_tryFind() =
-        sys.TryGetValue(key)
- 
+    member x.ImmutableDictionary_containsKey() =
+        let h = instance.system
+        for key in instance.existing do
+            h.ContainsKey key |> ignore
+
 [<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type WorkingLookupPerformance() =
-    let mutable okasakiv = HashMapOkasaki.empty
-    let mutable fsharpmap = Map.empty
-    let mutable sys = ImmutableDictionary.Empty
-    let mutable fsharpx = PersistentHashMap.empty
-
-    let mutable key = 0
-
+type NegativeLookupBenchmark() =
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
+
+    let mutable instance = Instance.create 0
 
     [<GlobalSetup>]
     member x.Setup() =
-        
-        let list =
-            [1 .. x.N] |> List.map (fun i ->
-                i, i*i
-            )
-        okasakiv <- HashMapOkasaki.ofList list
-        fsharpmap <- Map.ofList list
-        fsharpx <- PersistentHashMap.ofSeq list
-        sys <-
-            (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
-                d.SetItem(k, v)
-            )
+        instance <- Instance.create x.N
 
-        key <- x.N / 2
 
     [<Benchmark>]
-    member x.HashMapOkasaki_tryFind() =
-        HashMapOkasaki.tryFind key okasakiv
-        
-    //[<Benchmark>]
-    //member x.FSharpMap_tryFind() =
-    //    Map.tryFind key fsharpmap
-        
-    //[<Benchmark>]
-    //member x.FSharpX_containsKey() =
-    //    PersistentHashMap.containsKey key fsharpx
+    member x.HashMapOkasaki_containsKey() =
+        let h = instance.okasaki
+        for key in instance.nonExisting do
+            HashMapOkasaki.containsKey key h |> ignore
         
     [<Benchmark>]
-    member x.ImmutableDictionary_tryFind() =
-        sys.TryGetValue(key)
+    member x.FSharpMap_containsKey() =
+        let h = instance.fsharp
+        for key in instance.nonExisting do
+            Map.containsKey key h |> ignore
+        
+    [<Benchmark>]
+    member x.HAMT_containsKey() =
+        let h = instance.hamt
+        for key in instance.nonExisting do
+            h.ContainsKey key |> ignore
+        
+    [<Benchmark>]
+    member x.FSharpX_containsKey() =
+        let h = instance.fsharpx
+        for key in instance.nonExisting do
+            PersistentHashMap.containsKey key h |> ignore
+        
+    [<Benchmark>]
+    member x.ImmutableDictionary_containsKey() =
+        let h = instance.system
+        for key in instance.nonExisting do
+            h.ContainsKey key |> ignore
+
+
+
 
 [<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
-type OfListPerformance() =    
+type OfArrayBenchmark() =    
         
     #if SMALL
     [<DefaultValue; Params(10000)>]
     #else
-    [<DefaultValue; Params(0, 10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
     #endif
     val mutable public N : int
 
-    let mutable list = []
+    let mutable list = [||]
     [<GlobalSetup>]
     member x.Setup() =
         list <- 
-            [1 .. x.N] |> List.map (fun i ->
+            [|1 .. x.N|] |> Array.map (fun i ->
                 i, i*i
             )  
 
     [<Benchmark>]
-    member x.HashMapOkasaki_ofList() =
-        HashMapOkasaki.ofList list
+    member x.HashMapOkasaki_ofArray() =
+        HashMapOkasaki.ofArray list
         
     [<Benchmark>]
-    member x.HashMapOkasaki_ofListUnoptimized() =
-        HashMapOkasaki.ofListUnoptimized list
+    member x.FSharpMap_ofArray() =
+        Map.ofArray list
+
+    [<Benchmark>]
+    member x.HAMT_ofArray() =
+        let mutable res = HAMT.NET.V5.ImmutableDictionary<int, int>.Empty
+        for (k,v) in list do
+            res <- res.Add(k, v)
+        res
         
     [<Benchmark>]
-    member x.FSharpX_ofList() =
+    member x.FSharpX_ofArray() =
         PersistentHashMap.ofSeq list
         
     [<Benchmark>]
-    member x.FSharpMap_ofList() =
-        Map.ofList list
+    member x.ImmutableDictionary_ofArray() =
+        let mutable res = ImmutableDictionary.Empty
+        for (k,v) in list do
+            res <- res.SetItem(k, v)
+        res
+
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
+type ToArrayBenchmark() =    
         
+    #if SMALL
+    [<DefaultValue; Params(10000)>]
+    #else
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    #endif
+    val mutable public N : int
+
+    let mutable instance = Instance.create 0
+
+    [<GlobalSetup>]
+    member x.Setup() =
+        instance <- Instance.create x.N
+
+    [<Benchmark>]
+    member x.HashMapOkasaki_toArray() =
+        HashMapOkasaki.toArray instance.okasaki
+
+    [<Benchmark>]
+    member x.FSharpMap_toArray() =
+        Map.toArray instance.fsharp
+        
+    [<Benchmark>]
+    member x.ImmutableDictionary_toArray() =
+        instance.system |> Seq.toArray
+
 
 
 module RunTests =
@@ -331,62 +422,12 @@ module RunTests =
         let csv = toCSV res
         File.WriteAllText(outPath, csv)
 
-    let getMask (p0 : uint32) (p1 : uint32) =
-        #if NETCOREAPP3_0 
-        if p0 = p1 then failwith "baasdasdasd"
-
-        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1)
-        let offset = 32u - lz
-        let len = lz
-
-        let offsetb = 31u - lz
-        let lenb = 1u
-
-        (lenb <<< 24) ||| 
-        (offsetb <<< 16) ||| 
-        (len <<< 8) ||| 
-        (offset)
-        #else
-        //lowestBitMask (p0 ^^^ p1) // little endian
-        highestBitMask (p0 ^^^ p1) // big endian
-        #endif
-
     [<EntryPoint>]
     let main args =
-        //let a = 0xF8DEADBEu
-        //let b = 0xF4FAFAFAu 
-        //let m = getMask a b 
-
-        //Bmi1.BitFieldExtract(a, uint16 (m >>> 16)) |> printfn "a[b] = %X"
-        //Bmi1.BitFieldExtract(b, uint16 (m >>> 16)) |> printfn "b[b] = %X"
-        
-        //Bmi1.BitFieldExtract(a, uint16 m) |> printfn "a[..b-1] = %X"
-        //Bmi1.BitFieldExtract(b, uint16 m) |> printfn "b[..b-1] = %X"
-        //System.Environment.Exit 0
-        //let o = Options()
-
-        //let data = [1,3; 2,5]
-        //let (xMin, xMax) = ((Int32.MaxValue, Int32.MinValue), data) ||> List.fold (fun (l,h) (x,_) -> (min l x), (max h x))
-        //let (yMin, yMax) = ((Int32.MaxValue, Int32.MinValue), data) ||> List.fold (fun (l,h) (_,y) -> (min l y), (max h y))
-
-        //let chart = 
-        //    Chart.Scatter(
-        //        [1,3; 2,5], 
-        //        Options = Options(
-        //            showLine = true,
-        //            allValuesSuffix = "ns",
-        //            hAxis = Axis(minValue = 0, title = "N"),
-        //            vAxis = Axis(minValue = 0, title = "time")
-        //        )
-        //    )
-
-        //    //|> Chart.WithApiKey ""
-
-        //File.WriteAllText(@"C:\Users\Schorsch\Desktop\chart.html", chart.GetHtml())
-
-        let res = 
-            Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
-            |> Async.RunSynchronously
+        // run tests
+        Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
+        |> Async.RunSynchronously
+        |> ignore
 
         let outDir = 
             let outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bench2")
@@ -395,11 +436,12 @@ module RunTests =
             
         ////Environment.CurrentDirectory <- outDir
 
-        runBenchmark<WorkingLookupPerformance> (Path.Combine(outDir, "lookup_work.csv"))
-        //runBenchmark<FailingLookupPerformance> (Path.Combine(outDir, "lookup_fail.csv"))
-        //runBenchmark<RemovePerformance> (Path.Combine(outDir, "remove.csv"))
-        //runBenchmark<AddPerformance> (Path.Combine(outDir, "add.csv"))
-        //runBenchmark<UpdatePerformance> (Path.Combine(outDir, "update.csv"))
-        //runBenchmark<OfListPerformance> (Path.Combine(outDir, "ofList.csv"))
+        runBenchmark<AddBenchmark> (Path.Combine(outDir, "add.csv"))
+        runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
+        runBenchmark<RemoveBenchmark> (Path.Combine(outDir, "remove.csv"))
+        runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
+        runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
+        runBenchmark<OfArrayBenchmark> (Path.Combine(outDir, "ofArray.csv"))
+        runBenchmark<ToArrayBenchmark> (Path.Combine(outDir, "toArray.csv"))
         0
 
