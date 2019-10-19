@@ -437,11 +437,11 @@ module RunTests =
         ////Environment.CurrentDirectory <- outDir
 
         runBenchmark<AddBenchmark> (Path.Combine(outDir, "add.csv"))
-        runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
-        runBenchmark<RemoveBenchmark> (Path.Combine(outDir, "remove.csv"))
-        runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
-        runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
-        runBenchmark<OfArrayBenchmark> (Path.Combine(outDir, "ofArray.csv"))
-        runBenchmark<ToArrayBenchmark> (Path.Combine(outDir, "toArray.csv"))
+        //runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
+        //runBenchmark<RemoveBenchmark> (Path.Combine(outDir, "remove.csv"))
+        //runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
+        //runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
+        //runBenchmark<OfArrayBenchmark> (Path.Combine(outDir, "ofArray.csv"))
+        //runBenchmark<ToArrayBenchmark> (Path.Combine(outDir, "toArray.csv"))
         0
 

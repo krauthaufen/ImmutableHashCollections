@@ -19,11 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\HAMT.NET\HAMT.NET.csproj" />
-    <ProjectReference Include="..\..\src\ImmutableHashCollections\ImmutableHashCollections.fsproj"></ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Runtime.Intrinsics.Experimental" Version="4.5.0-rc1" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="4.7.0-preview1.19504.10" />
+    <ProjectReference Include="..\..\src\ImmutableHashCollections\ImmutableHashCollections.fsproj" />
   </ItemGroup>
   <Import Project="..\..\.paket\Paket.Restore.targets" />
 </Project>

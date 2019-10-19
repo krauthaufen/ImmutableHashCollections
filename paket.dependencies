@@ -8,7 +8,10 @@ nuget BenchmarkDotNet ~> 0.11.5
 nuget Expecto
 nuget Expecto.FsCheck
 nuget Expecto.VisualStudio.TestAdapter version_in_path: true
-nuget XPlot.GoogleCharts
+
+nuget ImTools.dll
+nuget System.Runtime.Intrinsics.Experimental
+nuget System.Runtime.CompilerServices.Unsafe
 
 clitool dotnet-fake
 
