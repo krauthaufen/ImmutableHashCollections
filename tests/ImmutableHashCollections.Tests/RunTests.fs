@@ -22,13 +22,15 @@ type Instance =
         system      : ImmutableDictionary<int, int>
         fsharpx     : PersistentHashMap<int, int>
         hamt        : HAMT.NET.V5.ImmutableDictionary<int, int>
-
+        imtools     : ImTools.ImHashMap<int, int>
         existing    : int[]
         nonExisting : int[]
     }
 
 module Instance = 
     let create (n : int) =
+
+
         let rand = System.Random()
 
         let numbers = 
@@ -68,6 +70,10 @@ module Instance =
                 (HAMT.NET.V5.ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
                     d.Add(k, v)
                 )
+            imtools = 
+                (ImTools.ImHashMap<int, int>.Empty, list) ||> List.fold (fun d (k,v) ->
+                    d.AddOrUpdate(k, v)
+                )
 
             nonExisting = Set.toArray nonExisting
             existing = Set.toArray numbers
@@ -94,6 +100,12 @@ type UpdateBenchmark() =
         let mutable h = instance.okasaki
         for key in instance.existing do
             h <- HashMapOkasaki.add key -123 h
+        
+    [<Benchmark>]
+    member x.ImTools_update() =
+        let mutable h = instance.imtools
+        for key in instance.existing do
+            h <- h.AddOrUpdate(key, -123)
         
     [<Benchmark>]
     member x.FSharpMap_update() =
@@ -142,6 +154,12 @@ type AddBenchmark() =
             h <- HashMapOkasaki.add key -123 h
         
     [<Benchmark>]
+    member x.ImTools_add() =
+        let mutable h = instance.imtools
+        for key in instance.nonExisting do
+            h <- h.AddOrUpdate(key, -123)
+
+    [<Benchmark>]
     member x.FSharpMap_add() =
         let mutable h = instance.fsharp
         for key in instance.nonExisting do
@@ -188,6 +206,13 @@ type RemoveBenchmark() =
             h <- HashMapOkasaki.remove key h
         
     [<Benchmark>]
+    member x.ImTools_remove() =
+        let mutable h = instance.imtools
+        for key in instance.existing do
+            h <- h.Remove(key)
+
+        
+    [<Benchmark>]
     member x.FSharpMap_remove() =
         let mutable h = instance.fsharp
         for key in instance.existing do
@@ -232,6 +257,13 @@ type PositiveLookupBenchmark() =
         let h = instance.okasaki
         for key in instance.existing do
             HashMapOkasaki.containsKey key h |> ignore
+
+    [<Benchmark>]
+    member x.ImTools_containsKey() =
+        let h = instance.imtools
+        for key in instance.existing do
+            h.GetValueOrDefault(key, -128) |> ignore
+        
         
     [<Benchmark>]
     member x.FSharpMap_containsKey() =
@@ -278,6 +310,14 @@ type NegativeLookupBenchmark() =
         let h = instance.okasaki
         for key in instance.nonExisting do
             HashMapOkasaki.containsKey key h |> ignore
+        
+        
+    [<Benchmark>]
+    member x.ImTools_containsKey() =
+        let h = instance.imtools
+        for key in instance.nonExisting do
+            h.GetValueOrDefault(key, -128) |> ignore
+        
         
     [<Benchmark>]
     member x.FSharpMap_containsKey() =
@@ -329,6 +369,13 @@ type OfArrayBenchmark() =
         HashMapOkasaki.ofArray list
         
     [<Benchmark>]
+    member x.ImTools_ofArray() =
+        let mutable res = ImTools.ImHashMap<int, int>.Empty
+        for (k,v) in list do
+            res <- res.AddOrUpdate(k, v)
+        res
+        
+    [<Benchmark>]
     member x.FSharpMap_ofArray() =
         Map.ofArray list
 
@@ -369,6 +416,10 @@ type ToArrayBenchmark() =
     [<Benchmark>]
     member x.HashMapOkasaki_toArray() =
         HashMapOkasaki.toArray instance.okasaki
+        
+    [<Benchmark>]
+    member x.ImTools_toArray() =
+        instance.imtools.Enumerate() |> Seq.toArray
 
     [<Benchmark>]
     member x.FSharpMap_toArray() =
