@@ -12,7 +12,8 @@ Benchmarks are done using [BenchmarkDotNet](https://github.com/dotnet/BenchmarkD
 
 ### Results
 
-Judging by the current benchmarks, the `HashMapOkasaki` implementation supports the fastest modification times and also shows lookup-times comparable to the fastest implementations. The only other alternative showing similar results is the `ImTools` implementation at the moment.  
+Judging by the current benchmarks, the `HashMapOkasaki` implementation supports the fastest modification times and also shows lookup-times comparable to the fastest implementations. The only other alternative showing similar results is the `ImTools` implementation at the moment.
+
 Note that the `HashMapOkasaki` doesn't use `System.Runtime.Intrinsics.X86` at the moment (since I wasn't able to run the `HAMT` benchmarks on netcore3) so the lookup performance might improve a little when using these.
 
 * [Add](https://github.com/krauthaufen/ImmutableHashCollections/wiki/Add)
