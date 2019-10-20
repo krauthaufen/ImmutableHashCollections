@@ -12,6 +12,8 @@ nuget Expecto.VisualStudio.TestAdapter version_in_path: true
 nuget ImTools.dll
 nuget System.Runtime.Intrinsics.Experimental
 nuget System.Runtime.CompilerServices.Unsafe
+nuget FSharp.Charting
+nuget FSharp.Data
 
 clitool dotnet-fake
 
