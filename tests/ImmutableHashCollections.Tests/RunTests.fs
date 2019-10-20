@@ -10,7 +10,7 @@ open FSharpx.Collections
 module Constants =
     [<Literal>]
     #if SMALL
-    let maxIter = 20
+    let maxIter = 70
     #else
     let maxIter = 100
     #endif
@@ -66,10 +66,10 @@ module Instance =
                 (ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
                     d.SetItem(k, v)
                 )
-            hamt =
-                (HAMT.NET.V5.ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
-                    d.Add(k, v)
-                )
+            hamt = HAMT.NET.V5.ImmutableDictionary.Empty
+                //(HAMT.NET.V5.ImmutableDictionary.Empty, list) ||> List.fold (fun d (k,v) ->
+                //    d.Add(k, v)
+                //)
             imtools = 
                 (ImTools.ImHashMap<int, int>.Empty, list) ||> List.fold (fun d (k,v) ->
                     d.AddOrUpdate(k, v)
@@ -265,23 +265,23 @@ type PositiveLookupBenchmark() =
             h.GetValueOrDefault(key, -128) |> ignore
         
         
-    [<Benchmark>]
-    member x.FSharpMap_containsKey() =
-        let h = instance.fsharp
-        for key in instance.existing do
-            Map.containsKey key h |> ignore
+    //[<Benchmark>]
+    //member x.FSharpMap_containsKey() =
+    //    let h = instance.fsharp
+    //    for key in instance.existing do
+    //        Map.containsKey key h |> ignore
         
-    [<Benchmark>]
-    member x.HAMT_containsKey() =
-        let h = instance.hamt
-        for key in instance.existing do
-            h.ContainsKey key |> ignore
+    //[<Benchmark>]
+    //member x.HAMT_containsKey() =
+    //    let h = instance.hamt
+    //    for key in instance.existing do
+    //        h.ContainsKey key |> ignore
         
-    [<Benchmark>]
-    member x.FSharpX_containsKey() =
-        let h = instance.fsharpx
-        for key in instance.existing do
-            PersistentHashMap.containsKey key h |> ignore
+    //[<Benchmark>]
+    //member x.FSharpX_containsKey() =
+    //    let h = instance.fsharpx
+    //    for key in instance.existing do
+    //        PersistentHashMap.containsKey key h |> ignore
         
     [<Benchmark>]
     member x.ImmutableDictionary_containsKey() =
@@ -319,23 +319,23 @@ type NegativeLookupBenchmark() =
             h.GetValueOrDefault(key, -128) |> ignore
         
         
-    [<Benchmark>]
-    member x.FSharpMap_containsKey() =
-        let h = instance.fsharp
-        for key in instance.nonExisting do
-            Map.containsKey key h |> ignore
+    //[<Benchmark>]
+    //member x.FSharpMap_containsKey() =
+    //    let h = instance.fsharp
+    //    for key in instance.nonExisting do
+    //        Map.containsKey key h |> ignore
         
-    [<Benchmark>]
-    member x.HAMT_containsKey() =
-        let h = instance.hamt
-        for key in instance.nonExisting do
-            h.ContainsKey key |> ignore
+    //[<Benchmark>]
+    //member x.HAMT_containsKey() =
+    //    let h = instance.hamt
+    //    for key in instance.nonExisting do
+    //        h.ContainsKey key |> ignore
         
-    [<Benchmark>]
-    member x.FSharpX_containsKey() =
-        let h = instance.fsharpx
-        for key in instance.nonExisting do
-            PersistentHashMap.containsKey key h |> ignore
+    //[<Benchmark>]
+    //member x.FSharpX_containsKey() =
+    //    let h = instance.fsharpx
+    //    for key in instance.nonExisting do
+    //        PersistentHashMap.containsKey key h |> ignore
         
     [<Benchmark>]
     member x.ImmutableDictionary_containsKey() =
@@ -488,10 +488,10 @@ module RunTests =
         ////Environment.CurrentDirectory <- outDir
 
         //runBenchmark<AddBenchmark> (Path.Combine(outDir, "add.csv"))
-        runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
+        //runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
         //runBenchmark<RemoveBenchmark> (Path.Combine(outDir, "remove.csv"))
-        //runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
-        //runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
+        runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
+        runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
         //runBenchmark<OfArrayBenchmark> (Path.Combine(outDir, "ofArray.csv"))
         //runBenchmark<ToArrayBenchmark> (Path.Combine(outDir, "toArray.csv"))
         0

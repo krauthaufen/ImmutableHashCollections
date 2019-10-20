@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <RootNamespace>ImmutableHashCollections</RootNamespace>
     <AssemblyName>ImmutableHashCollections</AssemblyName>
     <Name>ImmutableHashCollections</Name>
@@ -14,6 +14,9 @@
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DefineConstants>TRACE;USE_NO_COLLISION;USE_INTRINSICS;OPTIMISTIC</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <DefineConstants>TRACE;USE_NO_COLLISION;USE_INTRINSICS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>

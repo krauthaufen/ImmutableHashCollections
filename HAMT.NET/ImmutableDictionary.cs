@@ -65,19 +65,19 @@ namespace HAMT.NET.V5
             var bit = 1U << (int) ((hash >> shift) & Mask);
             if ((_bitmapNodes & bit) != 0)
             {
-                var index = Popcnt.PopCount(_bitmapNodes & (bit - 1));
+                var index = (long)Popcnt.X64.PopCount(_bitmapNodes & (bit - 1));
                 return _nodes.DuplicateWith(key, value, hash, index, shift, _bitmapNodes, _bitmapValues, _values);
             }
             else if ((_bitmapValues & bit) != 0)
             {
                 // TODO collisions and same value
-                var index = Popcnt.PopCount(_bitmapNodes & (bit - 1));
-                var indexValues = Popcnt.PopCount(_bitmapValues & (bit - 1));
+                var index = (long)Popcnt.X64.PopCount(_bitmapNodes & (bit - 1));
+                var indexValues = (long)Popcnt.X64.PopCount(_bitmapValues & (bit - 1));
                 return _nodes.Add(key, value, hash, (uint) index, (uint) indexValues, shift, _bitmapNodes | bit, _bitmapValues ^ bit, _values);
             }
             else
             {
-                var index = (uint)Popcnt.PopCount(_bitmapValues & (bit - 1));
+                var index = (uint)Popcnt.X64.PopCount(_bitmapValues & (bit - 1));
                 return _values.Add(key, value, _bitmapNodes, _nodes, _bitmapValues | bit, index);
             }
         }
@@ -125,12 +125,12 @@ namespace HAMT.NET.V5
             var bit = 1U << (int) ((hash >> shift) & Mask);
             if ((_bitmapNodes & bit) != 0)
             {
-                var index = Popcnt.PopCount(_bitmapNodes & (bit - 1));
+                var index = (long)Popcnt.X64.PopCount(_bitmapNodes & (bit - 1));
                 return _nodes.ContainsKey(key, hash, (int) index, shift + Shift);
             }
             else if ((_bitmapValues & bit) != 0)
             {
-                var index = Popcnt.PopCount(_bitmapValues & (bit - 1));
+                var index = (long)Popcnt.X64.PopCount(_bitmapValues & (bit - 1));
                 return _values.ContainsKey(key, hash, index);
             }
             else

@@ -5,10 +5,24 @@ open System.Collections.Generic
 open System.Runtime.CompilerServices
 #if NETCOREAPP3_0 && USE_INTRINSICS
 open System.Runtime.Intrinsics.X86
+open System.Runtime.InteropServices
 #endif
 
 [<AutoOpen>]
 module internal HashMapOkasakiImplementation = 
+
+    #if NETCOREAPP3_0 && USE_INTRINSICS
+    type Mask = uint32
+    //[<Struct; StructLayout(LayoutKind.Explicit, Size = 4)>]
+    //type Mask =
+    //    [<FieldOffset(0)>]
+    //    val mutable public BitMask : uint16
+    //    [<FieldOffset(2)>]
+    //    val mutable public LeadingZeros : uint16
+    //    new(lz,b) = { BitMask = b; LeadingZeros = lz }
+    #else
+    type Mask = uint32
+    #endif
 
     let inline private highestBitMask x =
         let mutable x = x
@@ -19,7 +33,7 @@ module internal HashMapOkasakiImplementation =
         x <- x ||| (x >>> 16)
         x ^^^ (x >>> 1)
 
-    let inline getPrefix (k: uint32) (m: uint32) = 
+    let inline getPrefix (k: uint32) (m: Mask) = 
         #if NETCOREAPP3_0 && USE_INTRINSICS
         k
         #else
@@ -27,7 +41,7 @@ module internal HashMapOkasakiImplementation =
         #endif
 
     #if NETCOREAPP3_0 && USE_INTRINSICS
-    let inline zeroBit (k: uint32) (m: uint32) =
+    let inline zeroBit (k: uint32) (m: Mask) =
         Bmi1.BitFieldExtract(k, uint16 m)
     #else
     let inline zeroBit (k: uint32) (m: uint32) =
@@ -35,7 +49,7 @@ module internal HashMapOkasakiImplementation =
     #endif
         
     #if NETCOREAPP3_0 && USE_INTRINSICS 
-    let inline matchPrefixAndGetBit (hash: uint32) (prefix: uint32) (m: uint32) =
+    let inline matchPrefixAndGetBit (hash: uint32) (prefix: uint32) (m: Mask) =
         let lz = Lzcnt.LeadingZeroCount (hash ^^^ prefix)
         let b = Bmi1.BitFieldExtract(hash, uint16 m)
         if lz >= (m >>> 16) then b
@@ -48,7 +62,8 @@ module internal HashMapOkasakiImplementation =
 
     let inline getMask (p0 : uint32) (p1 : uint32) =
         #if NETCOREAPP3_0 && USE_INTRINSICS 
-        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1)
+        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1) // |> uint16
+        //Mask(lz, 0x100us ||| (31us - lz))
         (lz <<< 16) ||| 0x100u ||| (31u - lz)
         #else
         //lowestBitMask (p0 ^^^ p1) // little endian
@@ -566,7 +581,7 @@ module internal HashMapOkasakiImplementation =
     and [<Sealed>] Node<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Prefix: uint32
-        val mutable public Mask: uint32
+        val mutable public Mask: Mask
         val mutable public Left: AbstractNode<'K, 'V>
         val mutable public Right: AbstractNode<'K, 'V>
 
@@ -575,7 +590,7 @@ module internal HashMapOkasakiImplementation =
             if zeroBit p0 m = 0u then Node(getPrefix p0 m, m, t0, t1) :> AbstractNode<_,_>
             else Node(getPrefix p0 m, m, t1, t0) :> AbstractNode<_,_>
 
-        static member Create(p: uint32, m: uint32, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) =
+        static member Create(p: uint32, m: Mask, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) =
             if r.IsEmpty then l
             elif l.IsEmpty then r
             else Node(p, m, l, r) :> _
@@ -586,23 +601,39 @@ module internal HashMapOkasakiImplementation =
             v.VisitNode x
 
         override x.TryFind(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
+            #if OPTIMISTIC 
+            let m = zeroBit hash x.Mask
+            if m = 0u then x.Left.TryFind(cmp, hash, key)
+            else x.Right.TryFind(cmp, hash, key)
+            #else
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then x.Left.TryFind(cmp, hash, key)
             elif m = 1u then x.Right.TryFind(cmp, hash, key)
             else None
+            #endif
             
         override x.ContainsKey(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
+            #if OPTIMISTIC 
+            let m = zeroBit hash x.Mask
+            if m = 0u then x.Left.ContainsKey(cmp, hash, key)
+            else x.Right.ContainsKey(cmp, hash, key)
+            #else
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then x.Left.ContainsKey(cmp, hash, key)
             elif m = 1u then x.Right.ContainsKey(cmp, hash, key)
             else false
+            #endif
 
         override x.Remove(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K) =
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then 
-                Node.Create(x.Prefix, x.Mask, x.Left.Remove(cmp, cnt, hash, key), x.Right)
+                let l = x.Left.Remove(cmp, cnt, hash, key)
+                if l == x.Left then x :> _
+                else Node.Create(x.Prefix, x.Mask, l, x.Right)
             elif m = 1u then
-                Node.Create(x.Prefix, x.Mask, x.Left, x.Right.Remove(cmp, cnt, hash, key))
+                let r = x.Right.Remove(cmp, cnt, hash, key)
+                if r == x.Right then x :> _
+                else Node.Create(x.Prefix, x.Mask, x.Left, r)
             else
                 x:> _
 
@@ -690,7 +721,7 @@ module internal HashMapOkasakiImplementation =
             x.Left.CopyTo(dst, index)
             x.Right.CopyTo(dst, index)
 
-        new(p: uint32, m: uint32, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) = 
+        new(p: uint32, m: Mask, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) = 
             { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
 
 
