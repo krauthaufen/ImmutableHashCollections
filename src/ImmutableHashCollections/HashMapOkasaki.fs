@@ -5,24 +5,12 @@ open System.Collections.Generic
 open System.Runtime.CompilerServices
 #if NETCOREAPP3_0 && USE_INTRINSICS
 open System.Runtime.Intrinsics.X86
-open System.Runtime.InteropServices
 #endif
 
 [<AutoOpen>]
 module internal HashMapOkasakiImplementation = 
 
-    #if NETCOREAPP3_0 && USE_INTRINSICS
     type Mask = uint32
-    //[<Struct; StructLayout(LayoutKind.Explicit, Size = 4)>]
-    //type Mask =
-    //    [<FieldOffset(0)>]
-    //    val mutable public BitMask : uint16
-    //    [<FieldOffset(2)>]
-    //    val mutable public LeadingZeros : uint16
-    //    new(lz,b) = { BitMask = b; LeadingZeros = lz }
-    #else
-    type Mask = uint32
-    #endif
 
     let inline private highestBitMask x =
         let mutable x = x
@@ -35,14 +23,20 @@ module internal HashMapOkasakiImplementation =
 
     let inline getPrefix (k: uint32) (m: Mask) = 
         #if NETCOREAPP3_0 && USE_INTRINSICS
-        k
+        if Bmi1.IsSupported then
+            k
+        else
+            k &&& ~~~((m <<< 1) - 1u)
         #else
         k &&& ~~~((m <<< 1) - 1u)
         #endif
 
     #if NETCOREAPP3_0 && USE_INTRINSICS
     let inline zeroBit (k: uint32) (m: Mask) =
-        Bmi1.BitFieldExtract(k, uint16 m)
+        if Bmi1.IsSupported then
+            Bmi1.BitFieldExtract(k, uint16 m)
+        else
+            if (k &&& m) <> 0u then 1u else 0u
     #else
     let inline zeroBit (k: uint32) (m: uint32) =
         if (k &&& m) <> 0u then 1u else 0u
@@ -50,21 +44,39 @@ module internal HashMapOkasakiImplementation =
         
     #if NETCOREAPP3_0 && USE_INTRINSICS 
     let inline matchPrefixAndGetBit (hash: uint32) (prefix: uint32) (m: Mask) =
-        let lz = Lzcnt.LeadingZeroCount (hash ^^^ prefix)
-        let b = Bmi1.BitFieldExtract(hash, uint16 m)
-        if lz >= (m >>> 16) then b
-        else 2u
+        if Bmi1.IsSupported then
+            let lz = Lzcnt.LeadingZeroCount (hash ^^^ prefix)
+            let b = Bmi1.BitFieldExtract(hash, uint16 m)
+            if lz >= (m >>> 16) then b
+            else 2u
+        else
+            if getPrefix hash m = prefix then zeroBit hash m
+            else 2u
     #else
     let inline matchPrefixAndGetBit (hash: uint32) (prefix: uint32) (m: uint32) =
         if getPrefix hash m = prefix then zeroBit hash m
         else 2u
     #endif
 
+    let inline compareMasks (l : Mask) (r : Mask) =
+        #if NETCOREAPP3_0 && USE_INTRINSICS 
+        if Bmi1.IsSupported then
+            int (r &&& 0xFFu) - int (l &&& 0xFFu)
+        else
+            compare l r
+        #else
+        compare l r
+        #endif
+
+
     let inline getMask (p0 : uint32) (p1 : uint32) =
         #if NETCOREAPP3_0 && USE_INTRINSICS 
-        let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1) // |> uint16
-        //Mask(lz, 0x100us ||| (31us - lz))
-        (lz <<< 16) ||| 0x100u ||| (31u - lz)
+        if Bmi1.IsSupported then
+            let lz = Lzcnt.LeadingZeroCount(p0 ^^^ p1)
+            (lz <<< 16) ||| 0x0100u ||| (31u - lz)
+        else
+            //lowestBitMask (p0 ^^^ p1) // little endian
+            highestBitMask (p0 ^^^ p1) // big endian
         #else
         //lowestBitMask (p0 ^^^ p1) // little endian
         highestBitMask (p0 ^^^ p1) // big endian
@@ -212,6 +224,8 @@ module internal HashMapOkasakiImplementation =
 
         abstract member Accept: NodeVisitor<'K, 'V, 'R> -> 'R
 
+        abstract member ToArray: ref<array<struct('K * 'V)>> * ref<int> -> unit
+
         abstract member CopyTo: dst: ('K * 'V) array * index : ref<int> -> unit
 
     and [<AbstractClass>] NodeVisitor<'K, 'V, 'R>() =
@@ -219,11 +233,14 @@ module internal HashMapOkasakiImplementation =
         abstract member VisitLeaf: Leaf<'K, 'V> -> 'R
         abstract member VisitNoCollision: NoCollisionLeaf<'K, 'V> -> 'R
         abstract member VisitEmpty: Empty<'K, 'V> -> 'R
-
+        
     and [<Sealed>] Empty<'K, 'V> private() =
         inherit AbstractNode<'K, 'V>()
         static let instance = Empty<'K, 'V>() :> AbstractNode<_,_>
         static member Instance = instance
+
+        override x.ToArray(dst, o) =
+            ()
 
         override x.Accept(v: NodeVisitor<_,_,_>) =
             v.VisitEmpty x
@@ -244,28 +261,18 @@ module internal HashMapOkasakiImplementation =
 
         override x.AddInPlaceUnsafe(_cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, value: 'V) =
             cnt:= !cnt + 1
-            #if USE_NO_COLLISION
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
-            #else
-            Leaf(hash, key, value, null) :> _
-            #endif
+
         override x.Add(_cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, value: 'V) =
             cnt:= !cnt + 1
-            #if USE_NO_COLLISION
             NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
-            #else
-            Leaf(hash, key, value, null) :> _
-            #endif
+
         override x.Alter(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
             match update None with
             | None -> x:> _
             | Some value ->
                 cnt:= !cnt + 1
-                #if USE_NO_COLLISION
                 NoCollisionLeaf<'K, 'V>(hash, key, value) :> _
-                #else
-                Leaf(hash, key, value, null) :> _
-                #endif
 
         override x.Map(_mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
             Empty<'K, 'T>.Instance
@@ -287,13 +294,35 @@ module internal HashMapOkasakiImplementation =
         val mutable public Hash: uint32
         
         static member inline Create(hash: uint32, key: 'K, value: 'V, next: Linked<'K, 'V>) =
-            #if USE_NO_COLLISION
             if isNull next then NoCollisionLeaf(hash, key, value) :> AbstractNode<'K, 'V>
             else Leaf(hash, key, value, next) :> AbstractNode<'K, 'V>
-            #else
-            Leaf(hash, key, value, next) :> AbstractNode<'K, 'V>
-            #endif
             
+        override x.ToArray(dst, o) =
+            if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+            dst.Value.[!o] <- struct(x.Key, x.Value)
+            o := !o + 1
+            
+            let mutable n = x.Next
+            while not (isNull n) do
+                if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+                dst.Value.[!o] <- struct(n.Key, n.Value)
+                o := !o + 1
+                n <- n.Next
+
+        member x.GetEntries() =
+            let mutable arr = Array.zeroCreate 8
+            arr.[0] <- struct(x.Key, x.Value)
+            let mutable cnt = 1
+
+            let mutable n = x.Next
+            while not (isNull n) do
+                if cnt >= arr.Length then System.Array.Resize(&arr, cnt * 2)
+                arr.[cnt] <- struct(n.Key, n.Value)
+                cnt <- cnt + 1
+                n <- n.Next
+            if cnt < arr.Length then System.Array.Resize(&arr, cnt)
+            arr
+
         override x.Accept(v: NodeVisitor<_,_,_>) =
             v.VisitLeaf x
 
@@ -364,11 +393,7 @@ module internal HashMapOkasakiImplementation =
                     x:> _
             else
                 cnt:= !cnt + 1
-                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
-                #else
-                let n = Leaf(hash, key, value, null)
-                #endif
                 Node.Join(hash, n, x.Hash, x)
                 
         override x.Add(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, value: 'V) =
@@ -379,11 +404,7 @@ module internal HashMapOkasakiImplementation =
                     Leaf<'K, 'V>(x.Hash, x.Key, x.Value, Linked.add cmp cnt key value x.Next) :> _
             else
                 cnt:= !cnt + 1
-                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
-                #else
-                let n = Leaf(hash, key, value, null)
-                #endif
                 Node.Join(hash, n, x.Hash, x)
 
         override x.Alter(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
@@ -413,11 +434,7 @@ module internal HashMapOkasakiImplementation =
                 | Some value ->
                     // add
                     cnt:= !cnt + 1
-                    #if USE_NO_COLLISION
                     let n = NoCollisionLeaf<'K, 'V>(hash, key, value)
-                    #else
-                    let n = Leaf(hash, key, value, null)
-                    #endif
                     Node.Join(hash, n, x.Hash, x)
 
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
@@ -433,12 +450,8 @@ module internal HashMapOkasakiImplementation =
                 let rest = Linked.choose cnt mapping x.Next
                 match Linked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    #if USE_NO_COLLISION
                     if isNull rest then NoCollisionLeaf(x.Hash, key, value) :> _
                     else Leaf(x.Hash, key, value, rest) :> _
-                    #else
-                    Leaf(x.Hash, key, value, rest) :> _
-                    #endif
                 | ValueNone ->
                     Empty<'K, 'T>.Instance
 
@@ -450,12 +463,8 @@ module internal HashMapOkasakiImplementation =
                 let rest = Linked.filter cnt predicate x.Next
                 match Linked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    #if USE_NO_COLLISION
                     if isNull rest then NoCollisionLeaf(x.Hash, key, value) :> _
                     else Leaf(x.Hash, key, value, rest) :> _
-                    #else
-                    Leaf(x.Hash, key, value, rest) :> _
-                    #endif
                 | ValueNone ->
                     Empty<'K, 'V>.Instance
 
@@ -466,12 +475,16 @@ module internal HashMapOkasakiImplementation =
 
         new(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v; Next = n }
      
-    #if USE_NO_COLLISION
     and [<Sealed>] NoCollisionLeaf<'K, 'V> =
         inherit AbstractNode<'K, 'V>
         val mutable public Key: 'K
         val mutable public Value: 'V
         val mutable public Hash: uint32
+  
+        override x.ToArray(dst, o) =
+            if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+            dst.Value.[!o] <- struct(x.Key, x.Value)
+            o := !o + 1
         
         override x.IsEmpty = false
         
@@ -576,7 +589,6 @@ module internal HashMapOkasakiImplementation =
             index := !index + 1
 
         new(h: uint32, k: 'K, v: 'V) = { inherit AbstractNode<'K, 'V>(); Hash = h; Key = k; Value = v }
-    #endif
 
     and [<Sealed>] Node<'K, 'V> =
         inherit AbstractNode<'K, 'V>
@@ -594,6 +606,12 @@ module internal HashMapOkasakiImplementation =
             if r.IsEmpty then l
             elif l.IsEmpty then r
             else Node(p, m, l, r) :> _
+
+
+        override x.ToArray(dst, o) =
+            x.Left.ToArray(dst, o)
+            x.Right.ToArray(dst, o)
+
             
         override x.IsEmpty = false
         
@@ -664,11 +682,7 @@ module internal HashMapOkasakiImplementation =
                 x:> AbstractNode<_,_>
             else
                 cnt:= !cnt + 1
-                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf(hash, key, value)
-                #else
-                let n = Leaf(hash, key, value, null)
-                #endif
                 Node.Join(x.Prefix, x, hash, n)
 
         override x.Add(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, value: 'V) =
@@ -679,11 +693,7 @@ module internal HashMapOkasakiImplementation =
                 Node(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, cnt, hash, key, value)) :> _
             else
                 cnt:= !cnt + 1
-                #if USE_NO_COLLISION
                 let n = NoCollisionLeaf(hash, key, value)
-                #else
-                let n = Leaf(hash, key, value, null)
-                #endif
                 Node.Join(x.Prefix, x, hash, n)
 
         override x.Alter(cmp: EqualityComparer<'K>, cnt: ref<int>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
@@ -701,11 +711,7 @@ module internal HashMapOkasakiImplementation =
                 | None -> x:> _
                 | Some value ->
                     cnt:= !cnt + 1
-                    #if USE_NO_COLLISION
                     let n = NoCollisionLeaf(hash, key, value)
-                    #else
-                    let n = Leaf(hash, key, value, null)
-                    #endif
                     Node.Join(x.Prefix, x, hash, n)
                     
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
@@ -723,6 +729,70 @@ module internal HashMapOkasakiImplementation =
 
         new(p: uint32, m: Mask, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) = 
             { inherit AbstractNode<'K, 'V>(); Prefix = p; Mask = m; Left = l; Right = r }
+
+    and [<AbstractClass>] NodeVisitor2<'K, 'V, 'R>() =
+        abstract member VisitNN     : Node<'K, 'V> * Node<'K, 'V> -> 'R
+        abstract member VisitNL     : Node<'K, 'V> * Leaf<'K, 'V> -> 'R
+        abstract member VisitNNC    : Node<'K, 'V> * NoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitNE     : Node<'K, 'V> * Empty<'K, 'V> -> 'R
+
+        abstract member VisitLN     : Leaf<'K, 'V> * Node<'K, 'V> -> 'R
+        abstract member VisitLL     : Leaf<'K, 'V> * Leaf<'K, 'V> -> 'R
+        abstract member VisitLNC    : Leaf<'K, 'V> * NoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitLE     : Leaf<'K, 'V> * Empty<'K, 'V> -> 'R
+
+        abstract member VisitNCN     : NoCollisionLeaf<'K, 'V> * Node<'K, 'V> -> 'R
+        abstract member VisitNCL     : NoCollisionLeaf<'K, 'V> * Leaf<'K, 'V> -> 'R
+        abstract member VisitNCNC    : NoCollisionLeaf<'K, 'V> * NoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitNCE     : NoCollisionLeaf<'K, 'V> * Empty<'K, 'V> -> 'R
+        
+        abstract member VisitEN     : Empty<'K, 'V> * Node<'K, 'V> -> 'R
+        abstract member VisitEL     : Empty<'K, 'V> * Leaf<'K, 'V> -> 'R
+        abstract member VisitENC    : Empty<'K, 'V> * NoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitEE     : Empty<'K, 'V> * Empty<'K, 'V> -> 'R
+    
+    type Visit2Visitor<'K, 'V, 'R>(real : NodeVisitor2<'K, 'V, 'R>, node : AbstractNode<'K, 'V>) =
+        inherit NodeVisitor<'K, 'V, 'R>()
+
+        override x.VisitLeaf l = 
+            node.Accept {
+                new NodeVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitLL(l, r)
+                    member x.VisitNode r = real.VisitLN(l, r)
+                    member x.VisitNoCollision r = real.VisitLNC(l, r)
+                    member x.VisitEmpty r = real.VisitLE(l, r)
+            }
+            
+        override x.VisitNode l = 
+            node.Accept {
+                new NodeVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitNL(l, r)
+                    member x.VisitNode r = real.VisitNN(l, r)
+                    member x.VisitNoCollision r = real.VisitNNC(l, r)
+                    member x.VisitEmpty r = real.VisitNE(l, r)
+            }
+            
+        override x.VisitNoCollision l = 
+            node.Accept {
+                new NodeVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitNCL(l, r)
+                    member x.VisitNode r = real.VisitNCN(l, r)
+                    member x.VisitNoCollision r = real.VisitNCNC(l, r)
+                    member x.VisitEmpty r = real.VisitNCE(l, r)
+            }
+            
+        override x.VisitEmpty l = 
+            node.Accept {
+                new NodeVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitEL(l, r)
+                    member x.VisitNode r = real.VisitEN(l, r)
+                    member x.VisitNoCollision r = real.VisitENC(l, r)
+                    member x.VisitEmpty r = real.VisitEE(l, r)
+            }
+
+    module Visit2 = 
+        let visit (v : NodeVisitor2<'K, 'V, 'R>) (l : AbstractNode<'K, 'V>) (r : AbstractNode<'K, 'V>) =
+            l.Accept (Visit2Visitor(v, r))
 
 
 
@@ -845,6 +915,196 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
         root.CopyTo(arr, index)
         arr
         
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    static member ComputeDelta(l : HashMapOkasaki<'K, 'V>, r : HashMapOkasaki<'K, 'V>, add : 'K -> 'V -> 'OP, update : 'K -> 'V -> 'V -> ValueOption<'OP>, remove : 'K -> 'V -> 'OP) =   
+        let cnt = ref 0
+        let set = OptimizedClosures.FSharpFunc<_,_,_>.Adapt(add)
+        let remove = OptimizedClosures.FSharpFunc<_,_,_>.Adapt(remove)
+        let update = OptimizedClosures.FSharpFunc<_,_,_,_>.Adapt(update)
+
+        let set = OptimizedClosures.FSharpFunc<_,_,_>.Adapt(fun k v -> cnt := !cnt + 1; set.Invoke(k,v))
+        let remove = OptimizedClosures.FSharpFunc<_,_,_>.Adapt(fun k v -> cnt := !cnt + 1; remove.Invoke(k,v))
+        let update = 
+            OptimizedClosures.FSharpFunc<_,_,_,_>.Adapt(fun k l r -> 
+                match update.Invoke(k,l,r) with 
+                | ValueSome v -> cnt := !cnt + 1; ValueSome v 
+                | ValueNone -> ValueNone
+            )
+        
+        let len = ref 0
+        let arr = ref (Array.zeroCreate 4)
+        let foo = ref 0
+        let cmp = EqualityComparer<'K>.Default
+
+        let result = 
+            let cnt = ()
+            (l.Root, r.Root) ||> Visit2.visit {
+                new NodeVisitor2<'K, 'V, AbstractNode<'K, 'OP>>() with
+                
+                    // correct
+                    member x.VisitEE(_, _) = Empty<'K, 'OP>.Instance
+                    member x.VisitEL(_, r) = r.Map(set)
+                    member x.VisitENC(_, r) = r.Map(set)
+                    member x.VisitEN(_, r) = r.Map(set)
+                    member x.VisitLE(l, _) = l.Map(remove)
+                    member x.VisitNCE(l, _) = l.Map(remove)
+                    member x.VisitNE(l, _) = l.Map(remove)
+
+                    // good
+                    member x.VisitNCNC(l, r) = 
+                        if l == r then 
+                            Empty<'K, 'OP>.Instance
+                        elif l.Hash = r.Hash && cmp.Equals(l.Key, r.Key) then
+                            match update.Invoke(l.Key, l.Value, r.Value) with
+                            | ValueSome op ->
+                                NoCollisionLeaf(l.Hash, l.Key, op) :> _
+                            | ValueNone ->
+                                Empty<'K, 'OP>.Instance
+                        else
+                            NoCollisionLeaf(l.Hash, l.Key, remove.Invoke(l.Key, l.Value))
+                                .AddInPlaceUnsafe(cmp, foo, r.Hash, r.Key, set.Invoke(r.Key, r.Value))
+                        
+                    // bad
+                    member x.VisitLL(l, r) = 
+                        if l == r then
+                            Empty<'K, 'OP>.Instance
+                        else
+                            len := 0
+                            if l.Hash = r.Hash then
+                                let mutable r = r :> AbstractNode<_,_>
+                                let mutable res = Empty<'K, 'OP>.Instance
+                                let hash = l.Hash
+                        
+                                l.ToArray(arr, len)
+                                for i in 0 .. !len - 1 do
+                                    let struct (k, lv) = arr.Value.[i]
+                                    match r.TryRemove(cmp, foo, hash, k) with
+                                    | ValueSome (rv, rest) ->
+                                        r <- rest
+                                        match update.Invoke(k, lv, rv) with
+                                        | ValueSome op ->
+                                            res <- res.AddInPlaceUnsafe(cmp, foo, hash, k, op)
+                                        | ValueNone ->
+                                            ()
+                                    | ValueNone ->
+                                        res <- res.AddInPlaceUnsafe(cmp, foo, hash, k, remove.Invoke(k, lv))
+
+                                len := 0
+                                r.ToArray(arr, len)
+                                for i in 0 .. !len - 1 do
+                                    let struct (k, rv) = arr.Value.[i]
+                                    res <- res.AddInPlaceUnsafe(cmp, foo, hash, k, set.Invoke(k, rv))
+                        
+                                res
+                            else
+                                let mutable res = l.Map(remove)
+                                r.ToArray(arr, len)
+                                for i in 0 .. !len - 1 do
+                                    let struct (k, rv) = arr.Value.[i]
+                                    res <- res.AddInPlaceUnsafe(cmp, foo, r.Hash, k, set.Invoke(k, rv))
+                                res
+
+                    member x.VisitLNC(l, r) =
+                        if l.Hash = r.Hash then
+                            match l.TryRemove(cmp, foo, r.Hash, r.Key) with
+                            | ValueSome(lv, rest) ->
+                                let rest = rest.Map(remove)
+                                match update.Invoke(r.Key, lv, r.Value) with
+                                | ValueSome op ->
+                                    rest.AddInPlaceUnsafe(cmp, foo, r.Hash, r.Key, op)
+                                | ValueNone ->
+                                    rest
+                            | ValueNone ->
+                                let l = l.Map(remove)
+                                l.AddInPlaceUnsafe(cmp, foo, r.Hash, r.Key, set.Invoke(r.Key, r.Value))
+                        else
+                            l.Map(remove).AddInPlaceUnsafe(cmp, foo, r.Hash, r.Key, set.Invoke(r.Key, r.Value))
+
+                    member x.VisitNCL(l, r) =   
+                        if l.Hash = r.Hash then
+                            match r.TryRemove(cmp, foo, l.Hash, l.Key) with
+                            | ValueSome (rv, rest) ->
+                                let rest = rest.Map(set)
+                                match update.Invoke(l.Key, l.Value, rv) with
+                                | ValueSome op ->
+                                    rest.AddInPlaceUnsafe(cmp, foo, l.Hash, l.Key, op)
+                                | ValueNone ->
+                                    rest
+                            | ValueNone ->
+                                let r = r.Map(set)
+                                r.AddInPlaceUnsafe(cmp, foo, l.Hash, l.Key, remove.Invoke(l.Key, l.Value))
+                        else
+                            r.Map(set).AddInPlaceUnsafe(cmp, foo, r.Hash, r.Key, remove.Invoke(r.Key, r.Value))
+
+
+                    // good
+                    member x.VisitNCN(l, r) =
+                        let b = matchPrefixAndGetBit l.Hash r.Prefix r.Mask
+                        if b = 0u then
+                            Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right.Map(set))
+                        elif b = 1u then
+                            Node.Create(r.Prefix, r.Mask, r.Left.Map(set), Visit2.visit x l r.Right)
+                        else
+                            Node.Join(l.Hash, l.Map(remove), r.Prefix, r.Map(set))
+
+                    member x.VisitNNC(l, r) =
+                        let b = matchPrefixAndGetBit r.Hash l.Prefix l.Mask
+                        if b = 0u then
+                            Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right.Map(remove))
+                        elif b = 1u then
+                            Node.Create(l.Prefix, l.Mask, l.Left.Map(remove), Visit2.visit x l.Right r)
+                        else
+                            Node.Join(l.Prefix, l.Map(remove), r.Hash, r.Map(set))
+
+
+                    member x.VisitLN(l, r) =
+                        let b = matchPrefixAndGetBit l.Hash r.Prefix r.Mask
+                        if b = 0u then
+                            Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right.Map(set))
+                        elif b = 1u then
+                            Node.Create(r.Prefix, r.Mask, r.Left.Map(set), Visit2.visit x l r.Right)
+                        else
+                            Node.Join(l.Hash, l.Map(remove), r.Prefix, r.Map(set))
+
+                    member x.VisitNL(l, r) =
+                        let b = matchPrefixAndGetBit r.Hash l.Prefix l.Mask
+                        if b = 0u then
+                            Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right.Map(remove))
+                        elif b = 1u then
+                            Node.Create(l.Prefix, l.Mask, l.Left.Map(remove), Visit2.visit x l.Right r)
+                        else
+                            Node.Join(l.Prefix, l.Map(remove), r.Hash, r.Map(set))
+
+                    member x.VisitNN(l, r) = 
+                        if l == r then
+                            Empty<'K, 'OP>.Instance
+                        else
+                            let cc = compareMasks l.Mask r.Mask
+                            if cc = 0 then
+                                let l' = (l.Left, r.Left) ||> Visit2.visit x
+                                let r' = (l.Right, r.Right) ||> Visit2.visit x
+                                Node.Create(l.Prefix, l.Mask, l', r')
+                            elif cc > 0 then
+                                let lr = matchPrefixAndGetBit l.Prefix r.Prefix r.Mask
+                                if lr = 0u then
+                                    Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right.Map(set))
+                                elif lr = 1u then
+                                    Node.Create(r.Prefix, r.Mask, r.Left.Map(set), Visit2.visit x l r.Right)
+                                else
+                                    Node.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(set))
+                            else
+                                let rl = matchPrefixAndGetBit r.Prefix l.Prefix l.Mask
+                            
+                                if rl = 0u then
+                                    Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right.Map(remove))
+                                elif rl = 1u then
+                                    Node.Create(l.Prefix, l.Mask, l.Left.Map(remove), Visit2.visit x l.Right r)
+                                else
+                                    Node.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(set))
+                                    
+            }
+
+        HashMapOkasaki(cmp, result, !cnt)
         
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member x.ToList() =
@@ -870,12 +1130,10 @@ and internal HashMapOkasakiEnumerator<'K, 'V>(root: AbstractNode<'K, 'V>) =
             | (:? Empty<'K, 'V>) :: rest ->
                 stack <- rest 
                 x.MoveNext()
-            #if USE_NO_COLLISION
             | (:? NoCollisionLeaf<'K, 'V> as l) :: rest ->
                 stack <- rest
                 current <- l.Key, l.Value
                 true
-            #endif
             | (:? Leaf<'K, 'V> as l) :: rest -> 
                 stack <- rest
                 current <- l.Key, l.Value
@@ -965,3 +1223,12 @@ module HashMapOkasaki =
 
     let inline filter (predicate: 'K -> 'V -> bool) (map: HashMapOkasaki<'K, 'V>) =
         map.Filter predicate
+
+    let inline computeDelta (l : HashMapOkasaki<'K, 'V>) (r : HashMapOkasaki<'K, 'V>) =
+        let inline add _k v = Set v
+        let inline remove _k _v = Remove
+        let inline update _l o n =
+            if Unchecked.equals o n then ValueNone
+            else ValueSome (Set n)
+
+        HashMapOkasaki<'K, 'V>.ComputeDelta(l, r, add, update, remove)

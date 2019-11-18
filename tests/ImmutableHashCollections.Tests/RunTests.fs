@@ -23,6 +23,7 @@ type Instance =
         fsharpx     : PersistentHashMap<int, int>
         hamt        : HAMT.NET.V5.ImmutableDictionary<int, int>
         imtools     : ImTools.ImHashMap<int, int>
+        adaptive    : HashMapAdaptive<int, int>
         existing    : int[]
         nonExisting : int[]
     }
@@ -74,7 +75,7 @@ module Instance =
                 (ImTools.ImHashMap<int, int>.Empty, list) ||> List.fold (fun d (k,v) ->
                     d.AddOrUpdate(k, v)
                 )
-
+            adaptive = HashMapAdaptive.OfList list
             nonExisting = Set.toArray nonExisting
             existing = Set.toArray numbers
         }
@@ -101,6 +102,12 @@ type UpdateBenchmark() =
         for key in instance.existing do
             h <- HashMapOkasaki.add key -123 h
         
+    [<Benchmark>]
+    member x.HashMapAdaptive_update() =
+        let mutable h = instance.adaptive
+        for key in instance.existing do
+            h <- HashMapAdaptive.add key -123 h
+            
     [<Benchmark>]
     member x.ImTools_update() =
         let mutable h = instance.imtools
@@ -152,7 +159,13 @@ type AddBenchmark() =
         let mutable h = instance.okasaki
         for key in instance.nonExisting do
             h <- HashMapOkasaki.add key -123 h
-        
+
+    [<Benchmark>]
+    member x.HashMapAdaptive_add() =
+        let mutable h = instance.adaptive
+        for key in instance.existing do
+            h <- HashMapAdaptive.add key -123 h
+     
     [<Benchmark>]
     member x.ImTools_add() =
         let mutable h = instance.imtools
@@ -205,6 +218,13 @@ type RemoveBenchmark() =
         for key in instance.existing do
             h <- HashMapOkasaki.remove key h
         
+        
+    [<Benchmark>]
+    member x.HashMapAdaptive_remove() =
+        let mutable h = instance.adaptive
+        for key in instance.existing do
+            h <- HashMapAdaptive.remove key h
+                
     [<Benchmark>]
     member x.ImTools_remove() =
         let mutable h = instance.imtools
@@ -257,7 +277,14 @@ type PositiveLookupBenchmark() =
         let h = instance.okasaki
         for key in instance.existing do
             HashMapOkasaki.containsKey key h |> ignore
-
+            
+            
+    [<Benchmark>]
+    member x.HashMapAdaptive_containsKey() =
+        let h = instance.adaptive
+        for key in instance.existing do
+            HashMapAdaptive.containsKey key h |> ignore
+            
     [<Benchmark>]
     member x.ImTools_containsKey() =
         let h = instance.imtools
@@ -310,7 +337,14 @@ type NegativeLookupBenchmark() =
         let h = instance.okasaki
         for key in instance.nonExisting do
             HashMapOkasaki.containsKey key h |> ignore
-        
+       
+       
+    [<Benchmark>]
+    member x.HashMapAdaptive_containsKey() =
+        let h = instance.adaptive
+        for key in instance.nonExisting do
+            HashMapAdaptive.containsKey key h |> ignore
+                
         
     [<Benchmark>]
     member x.ImTools_containsKey() =
@@ -367,7 +401,11 @@ type OfArrayBenchmark() =
     [<Benchmark>]
     member x.HashMapOkasaki_ofArray() =
         HashMapOkasaki.ofArray list
-        
+       
+    [<Benchmark>]
+    member x.HashMapAdaptive_ofArray() =
+        HashMapAdaptive.ofArray list
+            
     [<Benchmark>]
     member x.ImTools_ofArray() =
         let mutable res = ImTools.ImHashMap<int, int>.Empty
@@ -416,7 +454,11 @@ type ToArrayBenchmark() =
     [<Benchmark>]
     member x.HashMapOkasaki_toArray() =
         HashMapOkasaki.toArray instance.okasaki
-        
+
+    [<Benchmark>]
+    member x.HashMapAdaptive_toArray() =
+        HashMapAdaptive.toArray instance.adaptive
+    
     [<Benchmark>]
     member x.ImTools_toArray() =
         instance.imtools.Enumerate() |> Seq.toArray
@@ -429,6 +471,63 @@ type ToArrayBenchmark() =
     member x.ImmutableDictionary_toArray() =
         instance.system |> Seq.toArray
 
+
+[<PlainExporter; MemoryDiagnoser; MaxIterationCount(Constants.maxIter)>]
+type ComputeDeltaBenchmark() =    
+
+    #if SMALL
+    [<DefaultValue; Params(10000)>]
+    #else
+    [<DefaultValue; Params(10, 20, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000)>]
+    #endif
+    val mutable public N : int
+   
+   
+    let mutable adaptiveBase = HashMapAdaptive.empty
+    let mutable adaptiveDst = HashMapAdaptive.empty
+    
+    let mutable okasakiBase = HashMapOkasaki.empty
+    let mutable okasakiDst = HashMapOkasaki.empty
+
+    [<GlobalSetup>]
+    member x.Setup() =
+        let i = Instance.create x.N
+
+        adaptiveBase <- i.adaptive
+        okasakiBase <- i.okasaki
+
+        let mutable a = i.adaptive
+        let mutable o = i.okasaki
+
+        let rand = System.Random()
+
+        for _ in 1 .. 10 do
+            if rand.NextDouble() > 0.5 then
+                let key = i.nonExisting.[rand.Next(i.nonExisting.Length)]
+
+                a <- HashMapAdaptive.add key key a
+                o <- HashMapOkasaki.add key key o
+            else
+                let key = i.existing.[rand.Next(i.existing.Length)]
+                a <- HashMapAdaptive.remove key a
+                o <- HashMapOkasaki.remove key o
+
+        adaptiveDst <- a
+        okasakiDst <- o
+        
+    [<Benchmark>]
+    member x.HashMapOkasaki_computeDelta() =
+        HashMapOkasaki.computeDelta okasakiBase okasakiDst
+        
+    [<Benchmark>]
+    member x.HashMapAdaptive_computeDelta() =
+        HashMapAdaptive.computeDelta adaptiveBase adaptiveDst
+
+
+
+
+
+    
 
 
 module RunTests =
@@ -473,6 +572,27 @@ module RunTests =
         let csv = toCSV res
         File.WriteAllText(outPath, csv)
 
+    type Delta<'K, 'V> =
+        | Set of 'V
+        | Rem
+        | Nop
+
+    [<Struct; CustomEquality; CustomComparison>]
+    type BadHash(v : int) =
+        member x.Value = v
+        override x.GetHashCode() = v// v % 2
+        override x.Equals o  =
+            match o with
+            | :? BadHash as o -> v = o.Value
+            | _ -> false
+        override x.ToString() = string v
+
+        interface IComparable with
+            member x.CompareTo o =
+                match o with
+                | :? BadHash as o -> compare v o.Value
+                | _ -> 0
+
     [<EntryPoint>]
     let main args =
         // run tests
@@ -490,9 +610,10 @@ module RunTests =
         //runBenchmark<AddBenchmark> (Path.Combine(outDir, "add.csv"))
         //runBenchmark<UpdateBenchmark> (Path.Combine(outDir, "update.csv"))
         //runBenchmark<RemoveBenchmark> (Path.Combine(outDir, "remove.csv"))
-        runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
-        runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
+        //runBenchmark<PositiveLookupBenchmark> (Path.Combine(outDir, "lookup_work.csv"))
+        //runBenchmark<NegativeLookupBenchmark> (Path.Combine(outDir, "lookup_fail.csv"))
         //runBenchmark<OfArrayBenchmark> (Path.Combine(outDir, "ofArray.csv"))
         //runBenchmark<ToArrayBenchmark> (Path.Combine(outDir, "toArray.csv"))
+        runBenchmark<ComputeDeltaBenchmark> (Path.Combine(outDir, "delta.csv"))
         0
 
