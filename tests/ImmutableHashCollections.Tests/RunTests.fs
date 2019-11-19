@@ -482,6 +482,9 @@ type ComputeDeltaBenchmark() =
     #endif
     val mutable public N : int
    
+
+    
+
    
     let mutable adaptiveBase = HashMapAdaptive.empty
     let mutable adaptiveDst = HashMapAdaptive.empty
@@ -572,6 +575,7 @@ module RunTests =
         let csv = toCSV res
         File.WriteAllText(outPath, csv)
 
+
     type Delta<'K, 'V> =
         | Set of 'V
         | Rem
@@ -580,7 +584,7 @@ module RunTests =
     [<Struct; CustomEquality; CustomComparison>]
     type BadHash(v : int) =
         member x.Value = v
-        override x.GetHashCode() = v// v % 2
+        override x.GetHashCode() = v % 4
         override x.Equals o  =
             match o with
             | :? BadHash as o -> v = o.Value
@@ -599,6 +603,9 @@ module RunTests =
         Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
         |> Async.RunSynchronously
         |> ignore
+        
+        System.Environment.Exit 0
+
 
         let outDir = 
             let outDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bench2")

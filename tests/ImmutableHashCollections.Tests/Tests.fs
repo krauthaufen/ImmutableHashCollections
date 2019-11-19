@@ -11,6 +11,17 @@ module Tests =
     let configReplay = { FsCheckConfig.defaultConfig with maxTest = 10000 ; replay = Some <| (1940624926, 296296394) }
 
     module Expect =
+        let equalHashMaps (m : HashMapOkasaki<'a, 'b>) (hm : HashMapOkasaki<'a, 'b>) =
+            let a = hm |> HashMapOkasaki.toList |> List.sortBy fst
+            let b = m  |> HashMapOkasaki.toList |> List.sortBy fst
+
+            Expect.equal (List.length b) (hm.Count) "Expect Equal Count"
+            Expect.equal a b "Expected Equal Maps"
+
+            for (k, v) in b do
+                match HashMapOkasaki.tryFind k hm with
+                | Some vh -> Expect.equal v vh "bad value"
+                | None -> failwith "bad"
         let equalMaps (m : Map<'a, 'b>) (hm : HashMapOkasaki<'a, 'b>) =
             let a = hm |> HashMapOkasaki.toList |> List.sortBy fst
             let b = m |> Map.toList
@@ -92,6 +103,30 @@ module Tests =
 
                 | None ->
                     ()
+
+            testProperty "compute/applyDelta" <| fun (ma : Map<string, string>) (mb : Map<string, string>) ->
+                let a = HashMapOkasaki.ofSeq (Map.toSeq ma)
+                let b = HashMapOkasaki.ofSeq (Map.toSeq mb)
+                
+                let aa = HashMapOkasaki.computeDelta a a
+                Expect.sequenceEqual aa Seq.empty "diff(a,a) <> empty"
+                
+                let bb = HashMapOkasaki.computeDelta b b
+                Expect.sequenceEqual bb Seq.empty "diff(b,b) <> empty"
+
+                let ab = HashMapOkasaki.computeDelta a b
+                let ba = HashMapOkasaki.computeDelta b a
+
+                let b1, ab1 = HashMapOkasaki.applyDelta a ab
+                Expect.equalHashMaps b b1
+                Expect.equalHashMaps ab ab1
+
+                let a1, ba1 = HashMapOkasaki.applyDelta b ba
+                Expect.equalHashMaps a a1
+                Expect.equalHashMaps ba ba1
+
+
+
 
         ]
 
