@@ -8,7 +8,7 @@ open System.Runtime.Intrinsics.X86
 #endif
 
 [<AutoOpen>]
-module internal HashMapOkasakiImplementation = 
+module internal rec HashMapOkasakiImplementation = 
 
     type Mask = uint32
 
@@ -86,19 +86,19 @@ module internal HashMapOkasakiImplementation =
         System.Object.ReferenceEquals(a, b)
 
     [<AllowNullLiteral>]
-    type Linked<'K, 'V> =
-        val mutable public Next: Linked<'K, 'V>
+    type HashMapLinked<'K, 'V> =
+        val mutable public Next: HashMapLinked<'K, 'V>
         val mutable public Key: 'K
         val mutable public Value: 'V
 
         new(k, v) = { Key = k; Value = v; Next = null }
         new(k, v, n) = { Key = k; Value = v; Next = n }
 
-    module Linked =
+    module HashMapLinked =
     
-        let rec addInPlaceUnsafe (cmp: EqualityComparer<'K>) (key: 'K) (value: 'V) (n: Linked<'K, 'V>) =
+        let rec addInPlaceUnsafe (cmp: EqualityComparer<'K>) (key: 'K) (value: 'V) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
-                Linked(key, value)
+                HashMapLinked(key, value)
             elif cmp.Equals(n.Key, key) then
                 n.Key <- key
                 n.Value <- value
@@ -107,70 +107,70 @@ module internal HashMapOkasakiImplementation =
                 n.Next <- addInPlaceUnsafe cmp key value n.Next
                 n
 
-        let rec add (cmp: EqualityComparer<'K>) (key: 'K) (value: 'V) (n: Linked<'K, 'V>) =
+        let rec add (cmp: EqualityComparer<'K>) (key: 'K) (value: 'V) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
-                Linked(key, value)
+                HashMapLinked(key, value)
             elif cmp.Equals(n.Key, key) then
-                Linked(key, value, n.Next)
+                HashMapLinked(key, value, n.Next)
             else
-                Linked(n.Key, n.Value, add cmp key value n.Next)
+                HashMapLinked(n.Key, n.Value, add cmp key value n.Next)
                
-        let rec alter (cmp: EqualityComparer<'K>) (key: 'K) (update: option<'V> -> option<'V>) (n: Linked<'K, 'V>) =
+        let rec alter (cmp: EqualityComparer<'K>) (key: 'K) (update: option<'V> -> option<'V>) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
                 match update None with
                 | Some value -> 
-                    Linked(key, value)
+                    HashMapLinked(key, value)
                 | None ->
                     null
             elif cmp.Equals(n.Key, key) then
                 match update (Some n.Value) with
                 | Some value -> 
-                    Linked(key, value, n.Next)
+                    HashMapLinked(key, value, n.Next)
                 | None -> 
                     n.Next
             else
                 let next = alter cmp key update n.Next
                 if next == n.Next then n
-                else Linked(n.Key, n.Value, next)
+                else HashMapLinked(n.Key, n.Value, next)
                
-        let rec alterV (cmp: EqualityComparer<'K>) (key: 'K) (update: voption<'V> -> voption<'V>) (n: Linked<'K, 'V>) =
+        let rec alterV (cmp: EqualityComparer<'K>) (key: 'K) (update: voption<'V> -> voption<'V>) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
                 match update ValueNone with
                 | ValueSome value -> 
-                    Linked(key, value)
+                    HashMapLinked(key, value)
                 | ValueNone ->
                     null
             elif cmp.Equals(n.Key, key) then
                 match update (ValueSome n.Value) with
                 | ValueSome value -> 
-                    Linked(key, value, n.Next)
+                    HashMapLinked(key, value, n.Next)
                 | ValueNone -> 
                     n.Next
             else
                 let next = alterV cmp key update n.Next
                 if next == n.Next then n
-                else Linked(n.Key, n.Value, next)
+                else HashMapLinked(n.Key, n.Value, next)
                
-        let rec tryFind (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+        let rec tryFind (cmp: EqualityComparer<'K>) (key: 'K) (n: HashMapLinked<'K, 'V>) =
             if isNull n then None
             elif cmp.Equals(n.Key, key) then Some n.Value
             else tryFind cmp key n.Next
             
-        let rec tryFindV (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+        let rec tryFindV (cmp: EqualityComparer<'K>) (key: 'K) (n: HashMapLinked<'K, 'V>) =
             if isNull n then ValueNone
             elif cmp.Equals(n.Key, key) then ValueSome n.Value
             else tryFindV cmp key n.Next
             
-        let rec containsKey (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+        let rec containsKey (cmp: EqualityComparer<'K>) (key: 'K) (n: HashMapLinked<'K, 'V>) =
             if isNull n then false
             elif cmp.Equals(n.Key, key) then true
             else containsKey cmp key n.Next
 
-        let destruct (n: Linked<'K, 'V>) =
+        let destruct (n: HashMapLinked<'K, 'V>) =
             if isNull n then ValueNone
             else ValueSome(struct (n.Key, n.Value, n.Next))
             
-        let rec remove (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+        let rec remove (cmp: EqualityComparer<'K>) (key: 'K) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
                 null
             elif cmp.Equals(n.Key, key) then 
@@ -178,9 +178,9 @@ module internal HashMapOkasakiImplementation =
             else
                 let rest = remove cmp key n.Next
                 if rest == n.Next then n
-                else Linked(n.Key, n.Value, rest)
+                else HashMapLinked(n.Key, n.Value, rest)
 
-        let rec tryRemove (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+        let rec tryRemove (cmp: EqualityComparer<'K>) (key: 'K) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
                 ValueNone
             elif cmp.Equals(n.Key, key) then 
@@ -188,38 +188,38 @@ module internal HashMapOkasakiImplementation =
             else
                 match tryRemove cmp key n.Next with
                 | ValueSome (struct (value, rest)) ->
-                    ValueSome(struct(value, Linked(n.Key, n.Value, rest)))
+                    ValueSome(struct(value, HashMapLinked(n.Key, n.Value, rest)))
                 | ValueNone ->
                     ValueNone
 
-        let rec map (mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) (n: Linked<'K, 'V>) = 
+        let rec map (mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) (n: HashMapLinked<'K, 'V>) = 
             if isNull n then
                 null
             else 
                 let r = mapping.Invoke(n.Key, n.Value)
-                Linked(n.Key, r, map mapping n.Next)
+                HashMapLinked(n.Key, r, map mapping n.Next)
 
-        let rec choose (mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) (n: Linked<'K, 'V>) = 
+        let rec choose (mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) (n: HashMapLinked<'K, 'V>) = 
             if isNull n then
                 null
             else 
                 match mapping.Invoke(n.Key, n.Value) with
                 | Some r -> 
-                    Linked(n.Key, r, choose mapping n.Next)
+                    HashMapLinked(n.Key, r, choose mapping n.Next)
                 | None -> 
                     choose mapping n.Next
     
-        let rec chooseV (mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) (n: Linked<'K, 'V>) = 
+        let rec chooseV (mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) (n: HashMapLinked<'K, 'V>) = 
             if isNull n then
                 null
             else 
                 match mapping.Invoke(n.Key, n.Value) with
                 | ValueSome r -> 
-                    Linked(n.Key, r, chooseV mapping n.Next)
+                    HashMapLinked(n.Key, r, chooseV mapping n.Next)
                 | ValueNone -> 
                     chooseV mapping n.Next
     
-        let rec chooseV2 (mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct(ValueOption<'T1> * ValueOption<'T2>)>) (n: Linked<'K, 'V>) = 
+        let rec chooseV2 (mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct(ValueOption<'T1> * ValueOption<'T2>)>) (n: HashMapLinked<'K, 'V>) = 
             if isNull n then
                 struct(null, null)
             else 
@@ -228,24 +228,24 @@ module internal HashMapOkasakiImplementation =
 
                 let left = 
                     match l with
-                    | ValueSome l -> Linked(n.Key, l, lr)
+                    | ValueSome l -> HashMapLinked(n.Key, l, lr)
                     | ValueNone -> lr
                 let right =
                     match r with
-                    | ValueSome r -> Linked(n.Key, r, rr)
+                    | ValueSome r -> HashMapLinked(n.Key, r, rr)
                     | ValueNone -> rr
                 struct(left, right)
     
     
-        let rec filter (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: Linked<'K, 'V>) =
+        let rec filter (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: HashMapLinked<'K, 'V>) =
             if isNull n then
                 null
             elif predicate.Invoke(n.Key, n.Value) then
-                Linked(n.Key, n.Value, filter predicate n.Next)
+                HashMapLinked(n.Key, n.Value, filter predicate n.Next)
             else
                 filter predicate n.Next
     
-        let rec exists (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: Linked<'K, 'V>) =
+        let rec exists (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: HashMapLinked<'K, 'V>) =
             if isNull n then 
                 false
             elif predicate.Invoke(n.Key, n.Value) then
@@ -253,7 +253,7 @@ module internal HashMapOkasakiImplementation =
             else
                 exists predicate n.Next
                 
-        let rec forall (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: Linked<'K, 'V>) =
+        let rec forall (predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) (n: HashMapLinked<'K, 'V>) =
             if isNull n then 
                 true
             elif not (predicate.Invoke(n.Key, n.Value)) then
@@ -261,12 +261,780 @@ module internal HashMapOkasakiImplementation =
             else
                 forall predicate n.Next
 
-        let rec copyTo (index: ref<int>) (dst : ('K * 'V) array) (n: Linked<'K, 'V>) =
+        let rec copyTo (index: ref<int>) (dst : ('K * 'V) array) (n: HashMapLinked<'K, 'V>) =
             if not (isNull n) then
                 dst.[!index] <- n.Key, n.Value
                 index := !index + 1
                 copyTo index dst n.Next
     
+
+    [<AllowNullLiteral>]
+    type HashSetLinked<'T> =
+        val mutable public Next: HashSetLinked<'T>
+        val mutable public Value: 'T
+
+        new(v) = { Value = v; Next = null }
+        new(v, n) = { Value = v; Next = n }
+
+    module HashSetLinked =
+    
+        let rec addInPlaceUnsafe (cmp: EqualityComparer<'T>) (value : 'T) (n: HashSetLinked<'T>) =
+            if isNull n then
+                HashSetLinked(value)
+            elif cmp.Equals(n.Value, value) then
+                n.Value <- value
+                n
+            else
+                n.Next <- addInPlaceUnsafe cmp value n.Next
+                n
+
+        let rec add (cmp: EqualityComparer<'T>) (value: 'T) (n: HashSetLinked<'T>) =
+            if isNull n then
+                HashSetLinked(value)
+            elif cmp.Equals(n.Value, value) then
+                n
+            else
+                let next = add cmp value n.Next
+                if next == n.Next then n
+                else HashSetLinked(n.Value, add cmp value n.Next)
+               
+        let rec alter (cmp: EqualityComparer<'T>) (value: 'T) (update: bool -> bool) (n: HashSetLinked<'T>) =
+            if isNull n then
+                if update false then HashSetLinked(value)
+                else null
+            elif cmp.Equals(n.Value, value) then
+                if update true then n
+                else n.Next
+            else
+                let next = alter cmp value update n.Next
+                if next == n.Next then n
+                else HashSetLinked(n.Value, next)
+               
+        let rec contains (cmp: EqualityComparer<'T>) (value: 'T) (n: HashSetLinked<'T>) =
+            if isNull n then false
+            elif cmp.Equals(n.Value, value) then true
+            else contains cmp value n.Next
+
+        let destruct (n: HashSetLinked<'T>) =
+            if isNull n then ValueNone
+            else ValueSome(struct (n.Value, n.Next))
+            
+        let rec remove (cmp: EqualityComparer<'T>) (value: 'T) (n: HashSetLinked<'T>) =
+            if isNull n then
+                null
+            elif cmp.Equals(n.Value, value) then 
+                n.Next
+            else
+                let rest = remove cmp value n.Next
+                if rest == n.Next then n
+                else HashSetLinked(n.Value, rest)
+
+        let rec tryRemove (cmp: EqualityComparer<'T>) (value: 'T) (n: HashSetLinked<'T>) =
+            if isNull n then
+                ValueNone
+            elif cmp.Equals(n.Value, value) then 
+                ValueSome n.Next
+            else
+                match tryRemove cmp value n.Next with
+                | ValueSome rest ->
+                    ValueSome (HashSetLinked(n.Value, rest))
+                | ValueNone ->
+                    ValueNone
+
+        let rec filter (predicate: 'T -> bool) (n: HashSetLinked<'T>) =
+            if isNull n then
+                null
+            elif predicate n.Value then
+                let next = filter predicate n.Next
+                if n.Next == next then n
+                else HashSetLinked(n.Value, filter predicate n.Next)
+            else
+                filter predicate n.Next
+    
+        let rec mapToMap (mapping : 'T -> 'R) (n: HashSetLinked<'T>) =
+            if isNull n then
+                null
+            else
+                let v = mapping n.Value
+                HashMapLinked(n.Value, v, mapToMap mapping n.Next)
+                
+        let rec chooseToMap (mapping : 'T -> option<'R>) (n: HashSetLinked<'T>) =
+            if isNull n then
+                null
+            else
+                match mapping n.Value with
+                | Some v -> HashMapLinked(n.Value, v, chooseToMap mapping n.Next)
+                | None -> chooseToMap mapping n.Next
+                
+        let rec chooseToMapV (mapping : 'T -> voption<'R>) (n: HashSetLinked<'T>) =
+            if isNull n then
+                null
+            else
+                match mapping n.Value with
+                | ValueSome v -> HashMapLinked(n.Value, v, chooseToMapV mapping n.Next)
+                | ValueNone -> chooseToMapV mapping n.Next
+                
+        let rec chooseToMapV2 (mapping : 'T -> struct(voption<'T1> * voption<'T2>)) (n: HashSetLinked<'T>) =
+            if isNull n then
+                struct(null, null)
+            else
+                let struct (l, r) = mapping n.Value
+                let struct (ln, rn) = chooseToMapV2 mapping n.Next
+                
+                let l = match l with | ValueSome l -> HashMapLinked(n.Value, l, ln) | ValueNone -> ln
+                let r = match r with | ValueSome r -> HashMapLinked(n.Value, r, rn) | ValueNone -> rn
+                struct (l, r)
+
+        let rec exists (predicate: 'T -> bool) (n: HashSetLinked<'T>) =
+            if isNull n then 
+                false
+            elif predicate n.Value then
+                true
+            else
+                exists predicate n.Next
+                
+        let rec forall (predicate: 'T -> bool) (n: HashSetLinked<'T>) =
+            if isNull n then 
+                true
+            elif not (predicate n.Value) then
+                false
+            else
+                forall predicate n.Next
+
+        let rec copyTo (index: ref<int>) (dst : 'T array) (n: HashSetLinked<'T>) =
+            if not (isNull n) then
+                dst.[!index] <- n.Value
+                index := !index + 1
+                copyTo index dst n.Next
+    
+
+
+
+    [<AbstractClass>]
+    type HashSetNode<'T>() =
+        abstract member Remove: EqualityComparer<'T> * uint32 * 'T -> HashSetNode<'T>
+        abstract member TryRemove: EqualityComparer<'T> * uint32 * 'T -> ValueOption<HashSetNode<'T>>
+
+        abstract member Count : int
+        abstract member IsEmpty: bool
+
+        abstract member AddInPlaceUnsafe: EqualityComparer<'T> * uint32 * 'T -> HashSetNode<'T>
+        abstract member Add: EqualityComparer<'T> * uint32 * 'T -> HashSetNode<'T>
+        abstract member Alter: EqualityComparer<'T> * uint32 * 'T * (bool -> bool) -> HashSetNode<'T>
+        abstract member Contains: EqualityComparer<'T> * uint32 * 'T -> bool
+
+        abstract member MapToMap: mapping: ('T -> 'R) -> HashMapNode<'T, 'R>
+        abstract member ChooseToMap: mapping: ('T -> option<'R>) -> HashMapNode<'T, 'R>
+        abstract member ChooseToMapV: mapping: ('T -> voption<'R>) -> HashMapNode<'T, 'R>
+        abstract member ChooseToMapV2: mapping: ('T -> struct(ValueOption<'T1> * ValueOption<'T2>)) -> struct (HashMapNode<'T, 'T1> * HashMapNode<'T, 'T2>)
+        abstract member Filter: predicate: ('T -> bool) -> HashSetNode<'T>
+        abstract member Iter: action: ('T -> unit) -> unit
+        abstract member Fold: acc: OptimizedClosures.FSharpFunc<'S, 'T, 'S> * seed : 'S -> 'S
+        abstract member Exists: predicate: ('T -> bool) -> bool
+        abstract member Forall: predicate: ('T -> bool) -> bool
+
+        abstract member Accept: HashSetVisitor<'T, 'R> -> 'R
+
+        abstract member ToArray: ref<array<'T>> * ref<int> -> unit
+        abstract member CopyTo: dst: 'T array * index : ref<int> -> unit
+        
+    [<AbstractClass>]
+    type HashSetLeaf<'T>() =
+        inherit HashSetNode<'T>()
+        abstract member LHash : uint32
+        abstract member LValue : 'T
+        abstract member LNext : HashSetLinked<'T>
+        
+        static member inline New(h: uint32, v: 'T, n: HashSetLinked<'T>) : HashSetNode<'T> = 
+            if isNull n then new HashSetNoCollisionLeaf<_>(Hash = h, Value = v) :> HashSetNode<'T>
+            else new HashSetCollisionLeaf<_>(Hash = h, Value = v, Next = n) :> HashSetNode<'T>
+  
+
+    [<Sealed>]
+    type HashSetEmpty<'T> private() =
+        inherit HashSetNode<'T>()
+        static let instance = HashSetEmpty<'T>() :> HashSetNode<_>
+        static member Instance = instance
+
+        override x.Count = 0
+
+        override x.ToArray(dst, o) =
+            ()
+
+        override x.Accept(v: HashSetVisitor<_,_>) =
+            v.VisitEmpty x
+
+        override x.IsEmpty = true
+
+        override x.Contains(_cmp: EqualityComparer<'T>, _hash: uint32, _value: 'T) =
+            false
+
+        override x.Remove(_cmp: EqualityComparer<'T>, _hash: uint32, _value: 'T) =
+            x:> _
+            
+        override x.TryRemove(_cmp: EqualityComparer<'T>, _hash: uint32, _value: 'T) =
+            ValueNone
+
+        override x.AddInPlaceUnsafe(_cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            HashSetNoCollisionLeaf.New(hash, value)
+
+        override x.Add(_cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            HashSetNoCollisionLeaf.New(hash, value)
+
+        override x.Alter(cmp: EqualityComparer<'T>, hash: uint32, value: 'T, update: bool -> bool) =
+            if update false then
+                HashSetNoCollisionLeaf.New(hash, value)
+            else
+                x :> _
+
+        override x.MapToMap(_mapping: 'T -> 'R) =
+            HashMapEmpty.Instance
+            
+        override x.ChooseToMap(_mapping: 'T -> option<'R>) =
+            HashMapEmpty.Instance
+            
+        override x.ChooseToMapV(_mapping: 'T -> ValueOption<'R>) =
+            HashMapEmpty.Instance
+                 
+        override x.ChooseToMapV2(_mapping : 'T -> struct (voption<'T1> * voption<'T2>)) =
+            struct(HashMapEmpty.Instance, HashMapEmpty.Instance)
+                          
+        override x.Filter(_predicate: 'T -> bool) =
+            HashSetEmpty.Instance
+
+        override x.Iter(_action: 'T -> unit) =
+            ()
+            
+        override x.Fold(_acc: OptimizedClosures.FSharpFunc<'S, 'T, 'S>, seed : 'S) =
+            seed
+
+        override x.Exists(_predicate: 'T -> bool) =
+            false
+
+        override x.Forall(_predicate: 'T -> bool) =
+            true
+
+        override x.CopyTo(_dst : 'T array, _index : ref<int>) =
+            ()
+     
+    [<Sealed>]
+    type HashSetNoCollisionLeaf<'T>() =
+        inherit HashSetLeaf<'T>()
+        [<DefaultValue>]
+        val mutable public Value: 'T
+        [<DefaultValue>]
+        val mutable public Hash: uint32
+
+        override x.Count = 1
+        override x.LHash = x.Hash
+        override x.LValue = x.Value
+        override x.LNext = null
+
+        override x.ToArray(dst, o) =
+            if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+            dst.Value.[!o] <- x.Value
+            o := !o + 1
+        
+        override x.IsEmpty = false
+        
+        override x.Accept(v: HashSetVisitor<_,_>) =
+            v.VisitNoCollision x
+
+        override x.Contains(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =   
+            if hash = x.Hash && cmp.Equals(value, x.Value) then 
+                true
+            else
+                false
+
+        override x.Remove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if hash = x.Hash && cmp.Equals(value, x.Value) then
+                HashSetEmpty.Instance
+            else
+                x:> _
+
+        override x.TryRemove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if hash = x.Hash && cmp.Equals(value, x.Value) then
+                ValueSome (HashSetEmpty.Instance)
+            else
+                ValueNone
+
+        override x.AddInPlaceUnsafe(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    x.Value <- value
+                    x:> _
+                else
+                    HashSetCollisionLeaf.New(x.Hash, x.Value, HashSetLinked(value, null))
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(hash, n, x.Hash, x)
+
+        override x.Add(cmp: EqualityComparer<'T>, hash: uint32,value: 'T) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    x :> _
+                else
+                    HashSetCollisionLeaf.New(x.Hash, x.Value, HashSetLinked.add cmp value null)
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(hash, n, x.Hash, x)
+        
+        override x.Alter(cmp: EqualityComparer<'T>, hash: uint32, value: 'T, update: bool -> bool) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    if update true then
+                        x :> _
+                    else
+                        HashSetEmpty.Instance
+                else
+                    if update false then
+                        HashSetCollisionLeaf.New(x.Hash, x.Value, HashSetLinked(value, null))
+                    else
+                        x :> _
+            else
+                if update false then
+                    let n = HashSetNoCollisionLeaf.New(hash, value)
+                    HashSetInner.Join(hash, n, x.Hash, x)
+                else
+                    x:> _
+           
+        override x.MapToMap(mapping: 'T -> 'R) =
+            let t = mapping x.Value
+            HashMapNoCollisionLeaf.New(x.Hash, x.Value, t)
+               
+        override x.ChooseToMap(mapping: 'T -> option<'R>) =
+            match mapping x.Value with
+            | Some v ->
+                HashMapNoCollisionLeaf<'T, 'R>.New(x.Hash, x.Value, v)
+            | None ->
+                HashMapEmpty<'T, 'R>.Instance
+                
+        override x.ChooseToMapV(mapping: 'T -> voption<'R>) =
+            match mapping x.Value with
+            | ValueSome v ->
+                HashMapNoCollisionLeaf.New(x.Hash, x.Value, v)
+            | ValueNone ->
+                HashMapEmpty.Instance
+ 
+        override x.ChooseToMapV2(mapping : 'T -> struct (ValueOption<'T1> * ValueOption<'T2>)) =
+            let struct (l,r) = mapping x.Value 
+            let l = match l with | ValueSome v -> HashMapNoCollisionLeaf.New(x.Hash, x.Value, v) :> HashMapNode<_,_> | _ -> HashMapEmpty.Instance
+            let r = match r with | ValueSome v -> HashMapNoCollisionLeaf.New(x.Hash, x.Value, v) :> HashMapNode<_,_> | _ -> HashMapEmpty.Instance
+            struct (l, r)
+
+        override x.Filter(predicate: 'T -> bool) =
+            if predicate x.Value then x :> _
+            else HashSetEmpty.Instance
+ 
+        override x.Iter(action: 'T -> unit) =
+            action x.Value
+            
+        override x.Fold(acc: OptimizedClosures.FSharpFunc<'S, 'T, 'S>, seed : 'S) =
+            acc.Invoke(seed, x.Value)
+
+        override x.Exists(predicate: 'T -> bool) =
+            predicate x.Value
+                
+        override x.Forall(predicate: 'T -> bool) =
+            predicate x.Value
+
+        override x.CopyTo(dst : 'T array, index : ref<int>) =
+            dst.[!index] <- x.Value
+            index := !index + 1
+
+        static member New(h : uint32, v : 'T) : HashSetNode<'T> =
+            new HashSetNoCollisionLeaf<_>(Hash = h, Value = v) :> HashSetNode<'T>
+
+    [<Sealed>]
+    type HashSetCollisionLeaf<'T>() =
+        inherit HashSetLeaf<'T>()
+
+        [<DefaultValue>]
+        val mutable public Next: HashSetLinked<'T>
+        [<DefaultValue>]
+        val mutable public Value: 'T
+        [<DefaultValue>]
+        val mutable public Hash: uint32
+  
+        override x.Count =
+            let mutable cnt = 1
+            let mutable c = x.Next
+            while not (isNull c) do
+                c <- c.Next
+                cnt <- cnt + 1
+            cnt
+
+        override x.LHash = x.Hash
+        override x.LValue = x.Value
+        override x.LNext = x.Next
+
+        override x.ToArray(dst, o) =
+            if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+            dst.Value.[!o] <- x.Value
+            o := !o + 1
+            
+            let mutable n = x.Next
+            while not (isNull n) do
+                if !o >= dst.Value.Length then System.Array.Resize(&dst.contents, !o * 2)
+                dst.Value.[!o] <- n.Value
+                o := !o + 1
+                n <- n.Next
+
+        override x.Accept(v: HashSetVisitor<_,_>) =
+            v.VisitLeaf x
+
+        override x.IsEmpty = false
+        
+        override x.Contains(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =   
+            if hash = x.Hash then
+                if cmp.Equals(value, x.Value) then 
+                    true
+                else
+                    HashSetLinked.contains cmp value x.Next
+            else
+                false
+
+        override x.Remove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if hash = x.Hash then
+                if cmp.Equals(value, x.Value) then
+                    match HashSetLinked.destruct x.Next with
+                    | ValueSome (struct (v, rest)) ->
+                        HashSetLeaf.New(hash, v, rest)
+                    | ValueNone ->
+                        HashSetEmpty.Instance
+                else
+                    let next = HashSetLinked.remove cmp value x.Next
+                    if next == x.Next then x :> _
+                    else HashSetLeaf.New(x.Hash, x.Value, next)
+            else
+                x:> _
+
+        override x.TryRemove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if hash = x.Hash then
+                if cmp.Equals(value, x.Value) then
+                    match HashSetLinked.destruct x.Next with
+                    | ValueSome (struct (v, rest)) ->
+                        ValueSome (HashSetLeaf.New(hash, v, rest))
+                    | ValueNone ->
+                        ValueSome  HashSetEmpty.Instance
+                else
+                    match HashSetLinked.tryRemove cmp value x.Next with
+                    | ValueSome rest ->
+                        ValueSome(HashSetLeaf.New(x.Hash, x.Value, rest))
+                    | ValueNone ->
+                        ValueNone
+            else
+                ValueNone
+
+        override x.AddInPlaceUnsafe(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    x.Value <- value
+                    x:> _
+                else
+                    x.Next <- HashSetLinked.addInPlaceUnsafe cmp value x.Next
+                    x:> _
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(hash, n, x.Hash, x)
+                
+        override x.Add(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    x :> _
+                else
+                    HashSetCollisionLeaf.New(x.Hash, x.Value, HashSetLinked.add cmp value x.Next)
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(hash, n, x.Hash, x)
+
+        override x.Alter(cmp: EqualityComparer<'T>, hash: uint32, value: 'T, update: bool -> bool) =
+            if x.Hash = hash then
+                if cmp.Equals(value, x.Value) then
+                    if update true then
+                        // update
+                        x :> _
+                    else
+                        // remove
+                        match HashSetLinked.destruct x.Next with
+                        | ValueSome (struct (v, rest)) ->
+                            HashSetLeaf.New(x.Hash, v, rest)
+                        | ValueNone ->
+                            HashSetEmpty.Instance
+                else
+                    // in linked?
+                    let n = HashSetLinked.alter cmp value update x.Next
+                    if n == x.Next then x:> _
+                    else HashSetLeaf.New(x.Hash, x.Value, n)
+            else
+                // other hash => not contained
+                if update false then
+                    // add
+                    let n = HashSetNoCollisionLeaf.New(hash, value)
+                    HashSetInner.Join(hash, n, x.Hash, x)
+                else 
+                    x:> _
+
+        override x.MapToMap(mapping: 'T -> 'R) =
+            let t = mapping x.Value
+            HashMapCollisionLeaf.New(x.Hash, x.Value, t, HashSetLinked.mapToMap mapping x.Next)
+            
+        override x.ChooseToMap(mapping: 'T -> option<'R>) =
+            match mapping x.Value with
+            | Some v ->
+                HashMapLeaf.New(x.Hash, x.Value, v, HashSetLinked.chooseToMap mapping x.Next)
+            | None -> 
+                let rest = HashSetLinked.chooseToMap mapping x.Next
+                match HashMapLinked.destruct rest with
+                | ValueSome (struct (key, value, rest)) ->
+                    HashMapLeaf.New(x.Hash, key, value, rest)
+                | ValueNone ->
+                    HashMapEmpty.Instance
+
+        override x.ChooseToMapV(mapping: 'T -> voption<'R>) =
+            match mapping x.Value with
+            | ValueSome v ->
+                HashMapLeaf.New(x.Hash, x.Value, v, HashSetLinked.chooseToMapV mapping x.Next)
+            | ValueNone -> 
+                let rest = HashSetLinked.chooseToMapV mapping x.Next
+                match HashMapLinked.destruct rest with
+                | ValueSome (struct (key, value, rest)) ->
+                    HashMapLeaf.New(x.Hash, key, value, rest)
+                | ValueNone ->
+                    HashMapEmpty.Instance
+
+        override x.ChooseToMapV2(mapping: 'T -> struct (ValueOption<'T1> * ValueOption<'T2>)) =
+            let struct (l,r) = mapping x.Value
+            let struct (ln, rn) = HashSetLinked.chooseToMapV2 mapping x.Next
+            let left = 
+                match l with
+                | ValueSome v -> HashMapLeaf.New(x.Hash, x.Value, v, ln) :> HashMapNode<_,_>
+                | ValueNone -> 
+                    match HashMapLinked.destruct ln with
+                    | ValueSome (struct (key, value, rest)) ->
+                        HashMapLeaf.New(x.Hash, key, value, rest)
+                    | ValueNone ->
+                        HashMapEmpty.Instance
+            let right = 
+                match r with
+                | ValueSome v -> HashMapLeaf.New(x.Hash, x.Value, v, rn) :> HashMapNode<_,_>
+                | ValueNone -> 
+                    match HashMapLinked.destruct rn with
+                    | ValueSome (struct (key, value, rest)) ->
+                        HashMapLeaf.New(x.Hash, key, value, rest)
+                    | ValueNone ->
+                        HashMapEmpty.Instance
+            struct (left, right)
+
+        override x.Filter(predicate: 'T -> bool) =
+            if predicate x.Value then
+                HashSetLeaf.New(x.Hash, x.Value, HashSetLinked.filter predicate x.Next)
+            else
+                let rest = HashSetLinked.filter predicate x.Next
+                match HashSetLinked.destruct rest with
+                | ValueSome (struct (value, rest)) ->
+                    HashSetLeaf.New(x.Hash, value, rest)
+                | ValueNone ->
+                    HashSetEmpty.Instance
+
+        override x.Iter(action: 'T -> unit) =
+            action x.Value
+            let mutable n = x.Next
+            while not (isNull n) do
+                action n.Value
+                n <- n.Next
+                
+        override x.Fold(acc: OptimizedClosures.FSharpFunc<'S, 'T, 'S>, seed : 'S) =
+            let mutable res = acc.Invoke(seed, x.Value)
+            let mutable n = x.Next
+            while not (isNull n) do
+                res <- acc.Invoke(res, n.Value)
+                n <- n.Next
+            res
+
+        override x.Exists(predicate: 'T -> bool) =
+            if predicate x.Value then true
+            else HashSetLinked.exists predicate x.Next
+                
+        override x.Forall(predicate: 'T -> bool) =
+            if predicate x.Value then HashSetLinked.forall predicate x.Next
+            else false
+
+        override x.CopyTo(dst : 'T array, index : ref<int>) =
+            dst.[!index] <- x.Value
+            index := !index + 1
+            HashSetLinked.copyTo index dst x.Next
+            
+        static member New(h: uint32, v: 'T, n: HashSetLinked<'T>) : HashSetNode<'T> = 
+            assert (not (isNull n))
+            new HashSetCollisionLeaf<_>(Hash = h, Value = v, Next = n) :> HashSetNode<'T>
+ 
+    [<Sealed>]
+    type HashSetInner<'T>() =
+        inherit HashSetNode<'T>()
+        [<DefaultValue>]
+        val mutable public Prefix: uint32
+        [<DefaultValue>]
+        val mutable public Mask: Mask
+        [<DefaultValue>]
+        val mutable public Left: HashSetNode<'T>
+        [<DefaultValue>]
+        val mutable public Right: HashSetNode<'T>
+        [<DefaultValue>]
+        val mutable public _Count: int
+
+        override x.Count = x._Count
+
+        static member Join (p0 : uint32, t0 : HashSetNode<'T>, p1 : uint32, t1 : HashSetNode<'T>) : HashSetNode<'T>=
+            if t0.IsEmpty then t1
+            elif t1.IsEmpty then t0
+            else
+                let m = getMask p0 p1
+                if zeroBit p0 m = 0u then HashSetInner.New(getPrefix p0 m, m, t0, t1)
+                else HashSetInner.New(getPrefix p0 m, m, t1, t0)
+
+        static member Create(p: uint32, m: Mask, l: HashSetNode<'T>, r: HashSetNode<'T>) =
+            if r.IsEmpty then l
+            elif l.IsEmpty then r
+            else HashSetInner.New(p, m, l, r)
+
+        override x.ToArray(dst, o) =
+            x.Left.ToArray(dst, o)
+            x.Right.ToArray(dst, o)
+
+        override x.IsEmpty = false
+        
+        override x.Accept(v: HashSetVisitor<_,_>) =
+            v.VisitNode x
+
+        override x.Contains(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            #if OPTIMISTIC 
+            let m = zeroBit hash x.Mask
+            if m = 0u then x.Left.Contains(cmp, hash, value)
+            else x.Right.Contains(cmp, hash, value)
+            #else
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then x.Left.Contains(cmp, hash, value)
+            elif m = 1u then x.Right.Contains(cmp, hash, value)
+            else false
+            #endif
+
+        override x.Remove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                let l = x.Left.Remove(cmp, hash, value)
+                if l == x.Left then x :> _
+                else HashSetInner.Create(x.Prefix, x.Mask, l, x.Right)
+            elif m = 1u then
+                let r = x.Right.Remove(cmp, hash, value)
+                if r == x.Right then x :> _
+                else HashSetInner.Create(x.Prefix, x.Mask, x.Left, r)
+            else
+                x:> _
+
+        override x.TryRemove(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                match x.Left.TryRemove(cmp, hash, value) with
+                | ValueSome ll ->
+                    ValueSome (HashSetInner.Create(x.Prefix, x.Mask, ll, x.Right))
+                | ValueNone ->
+                    ValueNone
+            elif m = 1u then
+                match x.Right.TryRemove(cmp, hash, value) with
+                | ValueSome rr ->
+                    ValueSome (HashSetInner.Create(x.Prefix, x.Mask, x.Left, rr))
+                | ValueNone ->
+                    ValueNone
+            else
+                ValueNone
+
+        override x.AddInPlaceUnsafe(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                x.Left <- x.Left.AddInPlaceUnsafe(cmp, hash, value)
+                x._Count <- x.Left.Count + x.Right.Count
+                x:> HashSetNode<_>
+            elif m = 1u then 
+                x.Right <- x.Right.AddInPlaceUnsafe(cmp, hash, value)
+                x._Count <- x.Left.Count + x.Right.Count
+                x:> HashSetNode<_>
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(x.Prefix, x, hash, n)
+
+        override x.Add(cmp: EqualityComparer<'T>, hash: uint32, value: 'T) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                HashSetInner.New(x.Prefix, x.Mask, x.Left.Add(cmp, hash, value), x.Right)
+            elif m = 1u then 
+                HashSetInner.New(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, hash, value))
+            else
+                let n = HashSetNoCollisionLeaf.New(hash, value)
+                HashSetInner.Join(x.Prefix, x, hash, n)
+
+        override x.Alter(cmp: EqualityComparer<'T>, hash: uint32, value: 'T, update: bool -> bool) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                let ll = x.Left.Alter(cmp, hash, value, update)
+                if ll == x.Left then x:> _
+                else HashSetInner.New(x.Prefix, x.Mask, ll, x.Right)
+            elif m = 1u then
+                let rr = x.Right.Alter(cmp, hash, value, update)
+                if rr == x.Right then x:> _
+                else HashSetInner.New(x.Prefix, x.Mask, x.Left, rr)
+            else
+                if update false then
+                    let n = HashSetNoCollisionLeaf.New(hash, value)
+                    HashSetInner.Join(x.Prefix, x, hash, n)
+                else
+                    x:> _
+                    
+        override x.MapToMap(mapping: 'T -> 'R) =
+            HashMapInner.New(x.Prefix, x.Mask, x.Left.MapToMap(mapping), x.Right.MapToMap(mapping))
+  
+        override x.ChooseToMap(mapping: 'T -> option<'R>) =
+            HashMapInner.Create(x.Prefix, x.Mask, x.Left.ChooseToMap(mapping), x.Right.ChooseToMap(mapping))
+            
+        override x.ChooseToMapV(mapping: 'T -> voption<'R>) =
+            HashMapInner.Create(x.Prefix, x.Mask, x.Left.ChooseToMapV(mapping), x.Right.ChooseToMapV(mapping))
+      
+        override x.ChooseToMapV2(mapping: 'T -> struct(ValueOption<'T1> * ValueOption<'T2>)) =
+            let struct (la, lb) = x.Left.ChooseToMapV2(mapping)
+            let struct (ra, rb) = x.Right.ChooseToMapV2(mapping)
+
+            struct (
+                HashMapInner.Create(x.Prefix, x.Mask, la, ra),
+                HashMapInner.Create(x.Prefix, x.Mask, lb, rb)
+            )
+      
+        override x.Filter(predicate: 'T -> bool) =
+            HashSetInner.Create(x.Prefix, x.Mask, x.Left.Filter(predicate), x.Right.Filter(predicate))
+            
+        override x.Iter(action: 'T -> unit) =
+            x.Left.Iter(action)
+            x.Right.Iter(action)
+
+        override x.Fold(acc: OptimizedClosures.FSharpFunc<'S, 'T, 'S>, seed : 'S) =
+            let s = x.Left.Fold(acc, seed)
+            x.Right.Fold(acc, s)
+            
+
+        override x.Exists(predicate: 'T -> bool) =
+            x.Left.Exists predicate || x.Right.Exists predicate
+                
+        override x.Forall(predicate: 'T -> bool) =
+            x.Left.Forall predicate && x.Right.Forall predicate
+
+        override x.CopyTo(dst : 'T array, index : ref<int>) =
+            x.Left.CopyTo(dst, index)
+            x.Right.CopyTo(dst, index)
+
+        static member New(p: uint32, m: Mask, l: HashSetNode<'T>, r: HashSetNode<'T>) : HashSetNode<'T> = 
+            new HashSetInner<_>(Prefix = p, Mask = m, Left = l, Right = r, _Count = l.Count + r.Count) :> _
+
+
+
 
     [<AbstractClass>]
     type HashMapNode<'K, 'V>() =
@@ -294,34 +1062,36 @@ module internal HashMapOkasakiImplementation =
         abstract member Exists: predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool> -> bool
         abstract member Forall: predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool> -> bool
 
-        abstract member Accept: NodeVisitor<'K, 'V, 'R> -> 'R
+        abstract member Accept: HashMapVisitor<'K, 'V, 'R> -> 'R
 
         abstract member ToArray: ref<array<struct('K * 'V)>> * ref<int> -> unit
 
         abstract member CopyTo: dst: ('K * 'V) array * index : ref<int> -> unit
 
-    and [<AbstractClass>] Leaf<'K, 'V>() =
+    [<AbstractClass>]
+    type HashMapLeaf<'K, 'V>() =
         inherit HashMapNode<'K, 'V>()
         abstract member LHash : uint32
         abstract member LKey : 'K
         abstract member LValue : 'V
-        abstract member LNext : Linked<'K, 'V>
+        abstract member LNext : HashMapLinked<'K, 'V>
         
-        static member inline New(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) : HashMapNode<'K, 'V> = 
-            if isNull n then new NoCollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
-            else new CollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
+        static member inline New(h: uint32, k: 'K, v: 'V, n: HashMapLinked<'K, 'V>) : HashMapNode<'K, 'V> = 
+            if isNull n then new HashMapNoCollisionLeaf<_,_>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
+            else new HashMapCollisionLeaf<_,_>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
      
-    and [<Sealed>] Empty<'K, 'V> private() =
+    [<Sealed>]
+    type HashMapEmpty<'K, 'V> private() =
         inherit HashMapNode<'K, 'V>()
-        static let instance = Empty<'K, 'V>() :> HashMapNode<_,_>
-        static member Instance = instance
+        static let instance = HashMapEmpty<'K, 'V>() :> HashMapNode<_,_>
+        static member Instance : HashMapNode<'K, 'V> = instance
 
         override x.Count = 0
 
         override x.ToArray(dst, o) =
             ()
 
-        override x.Accept(v: NodeVisitor<_,_,_>) =
+        override x.Accept(v: HashMapVisitor<_,_,_>) =
             v.VisitEmpty x
 
         override x.IsEmpty = true
@@ -342,37 +1112,37 @@ module internal HashMapOkasakiImplementation =
             ValueNone
 
         override x.AddInPlaceUnsafe(_cmp: EqualityComparer<'K>, hash: uint32, key: 'K, value: 'V) =
-            NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+            HashMapNoCollisionLeaf.New(hash, key, value)
 
         override x.Add(_cmp: EqualityComparer<'K>, hash: uint32, key: 'K, value: 'V) =
-            NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+            HashMapNoCollisionLeaf.New(hash, key, value)
 
         override x.Alter(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
             match update None with
             | None -> x:> _
             | Some value ->
-                NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+                HashMapNoCollisionLeaf.New(hash, key, value)
                 
         override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
             match update ValueNone with
             | ValueNone -> x:> _
             | ValueSome value ->
-                NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+                HashMapNoCollisionLeaf.New(hash, key, value)
 
         override x.Map(_mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
-            Empty<'K, 'T>.Instance
+            HashMapEmpty.Instance
             
         override x.Choose(_mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) =
-            Empty<'K, 'T>.Instance
+            HashMapEmpty.Instance
             
         override x.ChooseV(_mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) =
-            Empty<'K, 'T>.Instance
+            HashMapEmpty.Instance
                  
         override x.ChooseV2(_mapping) =
-            struct(Empty.Instance, Empty.Instance)
+            struct(HashMapEmpty.Instance, HashMapEmpty.Instance)
                           
         override x.Filter(_predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
-            Empty<'K, 'V>.Instance
+            HashMapEmpty.Instance
 
         override x.Iter(_action: OptimizedClosures.FSharpFunc<'K, 'V, unit>) =
             ()
@@ -389,11 +1159,12 @@ module internal HashMapOkasakiImplementation =
         override x.CopyTo(_dst : ('K * 'V) array, _index : ref<int>) =
             ()
 
-    and [<Sealed>] CollisionLeaf<'K, 'V>() =
-        inherit Leaf<'K, 'V>()
+    [<Sealed>]
+    type HashMapCollisionLeaf<'K, 'V>() =
+        inherit HashMapLeaf<'K, 'V>()
 
         [<DefaultValue>]
-        val mutable public Next: Linked<'K, 'V>
+        val mutable public Next: HashMapLinked<'K, 'V>
         [<DefaultValue>]
         val mutable public Key: 'K
         [<DefaultValue>]
@@ -440,7 +1211,7 @@ module internal HashMapOkasakiImplementation =
             if cnt < arr.Length then System.Array.Resize(&arr, cnt)
             arr
 
-        override x.Accept(v: NodeVisitor<_,_,_>) =
+        override x.Accept(v: HashMapVisitor<_,_,_>) =
             v.VisitLeaf x
 
         override x.IsEmpty = false
@@ -450,7 +1221,7 @@ module internal HashMapOkasakiImplementation =
                 if cmp.Equals(key, x.Key) then 
                     Some x.Value
                 else
-                    Linked.tryFind cmp key x.Next
+                    HashMapLinked.tryFind cmp key x.Next
             else
                 None
 
@@ -459,7 +1230,7 @@ module internal HashMapOkasakiImplementation =
                 if cmp.Equals(key, x.Key) then 
                     ValueSome x.Value
                 else
-                    Linked.tryFindV cmp key x.Next
+                    HashMapLinked.tryFindV cmp key x.Next
             else
                 ValueNone
 
@@ -468,40 +1239,40 @@ module internal HashMapOkasakiImplementation =
                 if cmp.Equals(key, x.Key) then 
                     true
                 else
-                    Linked.containsKey cmp key x.Next
+                    HashMapLinked.containsKey cmp key x.Next
             else
                 false
 
         override x.Remove(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
             if hash = x.Hash then
                 if cmp.Equals(key, x.Key) then
-                    match Linked.destruct x.Next with
+                    match HashMapLinked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
-                        Leaf.New(hash, k, v, rest)
+                        HashMapLeaf.New(hash, k, v, rest)
                     | ValueNone ->
-                        Empty<'K, 'V>.Instance
+                        HashMapEmpty.Instance
                 else
-                    let next = Linked.remove cmp key x.Next
+                    let next = HashMapLinked.remove cmp key x.Next
                     if next == x.Next then x :> _
-                    else Leaf.New(x.Hash, x.Key, x.Value, Linked.remove cmp key x.Next)
+                    else HashMapLeaf.New(x.Hash, x.Key, x.Value, next)
             else
                 x:> _
 
         override x.TryRemove(cmp: EqualityComparer<'K>, hash: uint32, key: 'K)         =
             if hash = x.Hash then
                 if cmp.Equals(key, x.Key) then
-                    match Linked.destruct x.Next with
+                    match HashMapLinked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
-                        ValueSome(struct(x.Value, Leaf.New(hash, k, v, rest)))
+                        ValueSome(struct(x.Value, HashMapLeaf.New(hash, k, v, rest)))
                     | ValueNone ->
-                        ValueSome(struct(x.Value, Empty.Instance))
+                        ValueSome(struct(x.Value, HashMapEmpty.Instance))
                 else
-                    match Linked.tryRemove cmp key x.Next with
+                    match HashMapLinked.tryRemove cmp key x.Next with
                     | ValueSome(struct(value, rest)) ->
                         ValueSome(
                             struct(
                                 value,
-                                Leaf.New(x.Hash, x.Key, x.Value, rest)
+                                HashMapLeaf.New(x.Hash, x.Key, x.Value, rest)
                             )
                         )
                     | ValueNone ->
@@ -516,21 +1287,21 @@ module internal HashMapOkasakiImplementation =
                     x.Value <- value
                     x:> _
                 else
-                    x.Next <- Linked.addInPlaceUnsafe cmp key value x.Next
+                    x.Next <- HashMapLinked.addInPlaceUnsafe cmp key value x.Next
                     x:> _
             else
-                let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
-                Node.Join(hash, n, x.Hash, x)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(hash, n, x.Hash, x)
                 
         override x.Add(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, value: 'V) =
             if x.Hash = hash then
                 if cmp.Equals(key, x.Key) then
-                    CollisionLeaf.New(x.Hash, key, value, x.Next)
+                    HashMapCollisionLeaf.New(x.Hash, key, value, x.Next)
                 else
-                    CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked.add cmp key value x.Next)
+                    HashMapCollisionLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked.add cmp key value x.Next)
             else
-                let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
-                Node.Join(hash, n, x.Hash, x)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(hash, n, x.Hash, x)
 
         override x.Alter(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
             if x.Hash = hash then
@@ -538,27 +1309,27 @@ module internal HashMapOkasakiImplementation =
                     match update (Some x.Value) with
                     | None ->
                         // remove
-                        match Linked.destruct x.Next with
+                        match HashMapLinked.destruct x.Next with
                         | ValueSome (struct (k, v, rest)) ->
-                            Leaf.New(x.Hash, k, v, rest)
+                            HashMapLeaf.New(x.Hash, k, v, rest)
                         | ValueNone ->
-                            Empty<'K, 'V>.Instance
+                            HashMapEmpty.Instance
                     | Some value ->
                         // update
-                        CollisionLeaf.New(x.Hash, x.Key, value, x.Next) 
+                        HashMapCollisionLeaf.New(x.Hash, x.Key, value, x.Next) 
                 else
                     // in linked?
-                    let n = Linked.alter cmp key update x.Next
+                    let n = HashMapLinked.alter cmp key update x.Next
                     if n == x.Next then x:> _
-                    else Leaf.New(x.Hash, x.Key, x.Value, n)
+                    else HashMapLeaf.New(x.Hash, x.Key, x.Value, n)
             else
                 // other hash => not contained
                 match update None with
                 | None -> x:> _
                 | Some value ->
                     // add
-                    let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
-                    Node.Join(hash, n, x.Hash, x)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(hash, n, x.Hash, x)
 
         override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
             if x.Hash = hash then
@@ -566,89 +1337,89 @@ module internal HashMapOkasakiImplementation =
                     match update (ValueSome x.Value) with
                     | ValueNone ->
                         // remove
-                        match Linked.destruct x.Next with
+                        match HashMapLinked.destruct x.Next with
                         | ValueSome (struct (k, v, rest)) ->
-                            Leaf.New(x.Hash, k, v, rest)
+                            HashMapLeaf.New(x.Hash, k, v, rest)
                         | ValueNone ->
-                            Empty<'K, 'V>.Instance
+                            HashMapEmpty.Instance
                     | ValueSome value ->
                         // update
-                        CollisionLeaf.New(x.Hash, x.Key, value, x.Next) 
+                        HashMapCollisionLeaf.New(x.Hash, x.Key, value, x.Next) 
                 else
                     // in linked?
-                    let n = Linked.alterV cmp key update x.Next
+                    let n = HashMapLinked.alterV cmp key update x.Next
                     if n == x.Next then x:> _
-                    else Leaf.New(x.Hash, x.Key, x.Value, n)
+                    else HashMapLeaf.New(x.Hash, x.Key, x.Value, n)
             else
                 // other hash => not contained
                 match update ValueNone with
                 | ValueNone -> x:> _
                 | ValueSome value ->
                     // add
-                    let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
-                    Node.Join(hash, n, x.Hash, x)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(hash, n, x.Hash, x)
 
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
             let t = mapping.Invoke(x.Key, x.Value)
-            CollisionLeaf.New(x.Hash, x.Key, t, Linked.map mapping x.Next)
+            HashMapCollisionLeaf.New(x.Hash, x.Key, t, HashMapLinked.map mapping x.Next)
             
         override x.Choose(mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | Some v ->
-                Leaf.New(x.Hash, x.Key, v, Linked.choose mapping x.Next)
+                HashMapLeaf.New(x.Hash, x.Key, v, HashMapLinked.choose mapping x.Next)
             | None -> 
-                let rest = Linked.choose mapping x.Next
-                match Linked.destruct rest with
+                let rest = HashMapLinked.choose mapping x.Next
+                match HashMapLinked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    Leaf.New(x.Hash, key, value, rest)
+                    HashMapLeaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
-                    Empty<'K, 'T>.Instance
+                    HashMapEmpty.Instance
 
         override x.ChooseV(mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | ValueSome v ->
-                Leaf.New(x.Hash, x.Key, v, Linked.chooseV mapping x.Next)
+                HashMapLeaf.New(x.Hash, x.Key, v, HashMapLinked.chooseV mapping x.Next)
             | ValueNone -> 
-                let rest = Linked.chooseV mapping x.Next
-                match Linked.destruct rest with
+                let rest = HashMapLinked.chooseV mapping x.Next
+                match HashMapLinked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    Leaf.New(x.Hash, key, value, rest)
+                    HashMapLeaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
-                    Empty<'K, 'T>.Instance
+                    HashMapEmpty.Instance
 
         override x.ChooseV2(mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct (ValueOption<'T1> * ValueOption<'T2>)>) =
             let struct (l,r) = mapping.Invoke(x.Key, x.Value)
-            let struct (ln, rn) = Linked.chooseV2 mapping x.Next
+            let struct (ln, rn) = HashMapLinked.chooseV2 mapping x.Next
             let left = 
                 match l with
-                | ValueSome v -> Leaf.New(x.Hash, x.Key, v, ln) :> HashMapNode<_,_>
+                | ValueSome v -> HashMapLeaf.New(x.Hash, x.Key, v, ln) :> HashMapNode<_,_>
                 | ValueNone -> 
-                    match Linked.destruct ln with
+                    match HashMapLinked.destruct ln with
                     | ValueSome (struct (key, value, rest)) ->
-                        Leaf.New(x.Hash, key, value, rest)
+                        HashMapLeaf.New(x.Hash, key, value, rest)
                     | ValueNone ->
-                        Empty<'K, 'T1>.Instance
+                        HashMapEmpty.Instance
             let right = 
                 match r with
-                | ValueSome v -> Leaf.New(x.Hash, x.Key, v, rn) :> HashMapNode<_,_>
+                | ValueSome v -> HashMapLeaf.New(x.Hash, x.Key, v, rn) :> HashMapNode<_,_>
                 | ValueNone -> 
-                    match Linked.destruct rn with
+                    match HashMapLinked.destruct rn with
                     | ValueSome (struct (key, value, rest)) ->
-                        Leaf.New(x.Hash, key, value, rest)
+                        HashMapLeaf.New(x.Hash, key, value, rest)
                     | ValueNone ->
-                        Empty<'K, 'T2>.Instance
+                        HashMapEmpty.Instance
             struct (left, right)
 
         override x.Filter(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
             if predicate.Invoke(x.Key, x.Value) then
-                Leaf.New(x.Hash, x.Key, x.Value, Linked.filter predicate x.Next)
+                HashMapLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked.filter predicate x.Next)
             else
-                let rest = Linked.filter predicate x.Next
-                match Linked.destruct rest with
+                let rest = HashMapLinked.filter predicate x.Next
+                match HashMapLinked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    Leaf.New(x.Hash, key, value, rest)
+                    HashMapLeaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
-                    Empty<'K, 'V>.Instance
+                    HashMapEmpty.Instance
 
         override x.Iter(action: OptimizedClosures.FSharpFunc<'K, 'V, unit>) =
             action.Invoke(x.Key, x.Value)
@@ -667,23 +1438,24 @@ module internal HashMapOkasakiImplementation =
 
         override x.Exists(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
             if predicate.Invoke(x.Key, x.Value) then true
-            else Linked.exists predicate x.Next
+            else HashMapLinked.exists predicate x.Next
                 
         override x.Forall(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
-            if predicate.Invoke(x.Key, x.Value) then Linked.forall predicate x.Next
+            if predicate.Invoke(x.Key, x.Value) then HashMapLinked.forall predicate x.Next
             else false
 
         override x.CopyTo(dst : ('K * 'V) array, index : ref<int>) =
             dst.[!index] <- (x.Key, x.Value)
             index := !index + 1
-            Linked.copyTo index dst x.Next
+            HashMapLinked.copyTo index dst x.Next
             
-        static member New(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) : HashMapNode<'K, 'V> = 
+        static member New(h: uint32, k: 'K, v: 'V, n: HashMapLinked<'K, 'V>) : HashMapNode<'K, 'V> = 
             assert (not (isNull n))
-            new CollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
+            new HashMapCollisionLeaf<_,_>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
      
-    and [<Sealed>] NoCollisionLeaf<'K, 'V>() =
-        inherit Leaf<'K, 'V>()
+    [<Sealed>]
+    type HashMapNoCollisionLeaf<'K, 'V>() =
+        inherit HashMapLeaf<'K, 'V>()
         [<DefaultValue>]
         val mutable public Key: 'K
         [<DefaultValue>]
@@ -704,7 +1476,7 @@ module internal HashMapOkasakiImplementation =
         
         override x.IsEmpty = false
         
-        override x.Accept(v: NodeVisitor<_,_,_>) =
+        override x.Accept(v: HashMapVisitor<_,_,_>) =
             v.VisitNoCollision x
 
         override x.TryFind(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =   
@@ -727,13 +1499,13 @@ module internal HashMapOkasakiImplementation =
 
         override x.Remove(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
             if hash = x.Hash && cmp.Equals(key, x.Key) then
-                Empty<'K, 'V>.Instance
+                HashMapEmpty.Instance
             else
                 x:> _
 
         override x.TryRemove(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
             if hash = x.Hash && cmp.Equals(key, x.Key) then
-                ValueSome (struct(x.Value, Empty<'K, 'V>.Instance))
+                ValueSome (struct(x.Value, HashMapEmpty.Instance))
             else
                 ValueNone
 
@@ -744,90 +1516,90 @@ module internal HashMapOkasakiImplementation =
                     x.Value <- value
                     x:> _
                 else
-                    CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked(key, value, null))
+                    HashMapCollisionLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked(key, value, null))
             else
-                let n = NoCollisionLeaf.New(hash, key, value)
-                Node.Join(hash, n, x.Hash, x)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(hash, n, x.Hash, x)
 
         override x.Add(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, value: 'V) =
             if x.Hash = hash then
                 if cmp.Equals(key, x.Key) then
-                    NoCollisionLeaf.New(x.Hash, key, value)
+                    HashMapNoCollisionLeaf.New(x.Hash, key, value)
                 else
-                    CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked.add cmp key value null)
+                    HashMapCollisionLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked.add cmp key value null)
             else
-                let n = NoCollisionLeaf.New(hash, key, value)
-                Node.Join(hash, n, x.Hash, x)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(hash, n, x.Hash, x)
         
         override x.Alter(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
             if x.Hash = hash then
                 if cmp.Equals(key, x.Key) then
                     match update (Some x.Value) with
                     | Some value -> 
-                        NoCollisionLeaf.New(x.Hash, x.Key, value)
+                        HashMapNoCollisionLeaf.New(x.Hash, x.Key, value)
                     | None -> 
-                        Empty.Instance
+                        HashMapEmpty.Instance
                 else
                     match update None with
                     | None -> x:> _
                     | Some value ->
-                        CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked(key, value, null))
+                        HashMapCollisionLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked(key, value, null))
             else
                 match update None with
                 | None -> x:> _
                 | Some value ->
-                    let n = NoCollisionLeaf.New(hash, key, value)
-                    Node.Join(hash, n, x.Hash, x)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(hash, n, x.Hash, x)
            
         override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
             if x.Hash = hash then
                 if cmp.Equals(key, x.Key) then
                     match update (ValueSome x.Value) with
                     | ValueSome value -> 
-                        NoCollisionLeaf.New(x.Hash, x.Key, value)
+                        HashMapNoCollisionLeaf.New(x.Hash, x.Key, value)
                     | ValueNone -> 
-                        Empty.Instance
+                        HashMapEmpty.Instance
                 else
                     match update ValueNone with
                     | ValueNone -> x:> _
                     | ValueSome value ->
-                        CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked(key, value, null))
+                        HashMapCollisionLeaf.New(x.Hash, x.Key, x.Value, HashMapLinked(key, value, null))
             else
                 match update ValueNone with
                 | ValueNone -> x:> _
                 | ValueSome value ->
-                    let n = NoCollisionLeaf.New(hash, key, value)
-                    Node.Join(hash, n, x.Hash, x)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(hash, n, x.Hash, x)
            
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
             let t = mapping.Invoke(x.Key, x.Value)
-            NoCollisionLeaf.New(x.Hash, x.Key, t)
+            HashMapNoCollisionLeaf.New(x.Hash, x.Key, t)
                
         override x.Choose(mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | Some v ->
-                NoCollisionLeaf.New(x.Hash, x.Key, v)
+                HashMapNoCollisionLeaf.New(x.Hash, x.Key, v)
             | None ->
-                Empty<'K, 'T>.Instance
+                HashMapEmpty.Instance
                 
         override x.ChooseV(mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | ValueSome v ->
-                NoCollisionLeaf.New(x.Hash, x.Key, v)
+                HashMapNoCollisionLeaf.New(x.Hash, x.Key, v)
             | ValueNone ->
-                Empty<'K, 'T>.Instance
+                HashMapEmpty.Instance
  
         override x.ChooseV2(mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct (ValueOption<'T1> * ValueOption<'T2>)>) =
             let struct (l,r) = mapping.Invoke(x.Key, x.Value)         
-            let l = match l with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> Empty.Instance
-            let r = match r with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> Empty.Instance
+            let l = match l with | ValueSome v -> HashMapNoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> HashMapEmpty.Instance
+            let r = match r with | ValueSome v -> HashMapNoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> HashMapEmpty.Instance
             struct (l, r)
 
         override x.Filter(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
             if predicate.Invoke(x.Key, x.Value) then
-                NoCollisionLeaf.New(x.Hash, x.Key, x.Value)
+                HashMapNoCollisionLeaf.New(x.Hash, x.Key, x.Value)
             else
-                Empty<'K, 'V>.Instance
+                HashMapEmpty.Instance
  
         override x.Iter(action: OptimizedClosures.FSharpFunc<'K, 'V, unit>) =
             action.Invoke(x.Key, x.Value)
@@ -846,9 +1618,10 @@ module internal HashMapOkasakiImplementation =
             index := !index + 1
 
         static member New(h : uint32, k : 'K, v : 'V) : HashMapNode<'K, 'V> =
-            new NoCollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
+            new HashMapNoCollisionLeaf<_,_>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
 
-    and [<Sealed>] Node<'K, 'V>() =
+    [<Sealed>]
+    type HashMapInner<'K, 'V>() =
         inherit HashMapNode<'K, 'V>()
         [<DefaultValue>]
         val mutable public Prefix: uint32
@@ -865,13 +1638,13 @@ module internal HashMapOkasakiImplementation =
 
         static member Join (p0 : uint32, t0 : HashMapNode<'K, 'V>, p1 : uint32, t1 : HashMapNode<'K, 'V>) : HashMapNode<'K,'V>=
             let m = getMask p0 p1
-            if zeroBit p0 m = 0u then Node.New(getPrefix p0 m, m, t0, t1)
-            else Node.New(getPrefix p0 m, m, t1, t0)
+            if zeroBit p0 m = 0u then HashMapInner.New(getPrefix p0 m, m, t0, t1)
+            else HashMapInner.New(getPrefix p0 m, m, t1, t0)
 
-        static member Create(p: uint32, m: Mask, l: HashMapNode<'K, 'V>, r: HashMapNode<'K, 'V>) =
+        static member Create(p: uint32, m: Mask, l: HashMapNode<'K, 'V>, r: HashMapNode<'K, 'V>) : HashMapNode<'K, 'V> =
             if r.IsEmpty then l
             elif l.IsEmpty then r
-            else Node.New(p, m, l, r)
+            else HashMapInner.New(p, m, l, r)
 
         override x.ToArray(dst, o) =
             x.Left.ToArray(dst, o)
@@ -879,7 +1652,7 @@ module internal HashMapOkasakiImplementation =
 
         override x.IsEmpty = false
         
-        override x.Accept(v: NodeVisitor<_,_,_>) =
+        override x.Accept(v: HashMapVisitor<_,_,_>) =
             v.VisitNode x
 
         override x.TryFind(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
@@ -923,11 +1696,11 @@ module internal HashMapOkasakiImplementation =
             if m = 0u then 
                 let l = x.Left.Remove(cmp, hash, key)
                 if l == x.Left then x :> _
-                else Node.Create(x.Prefix, x.Mask, l, x.Right)
+                else HashMapInner.Create(x.Prefix, x.Mask, l, x.Right)
             elif m = 1u then
                 let r = x.Right.Remove(cmp, hash, key)
                 if r == x.Right then x :> _
-                else Node.Create(x.Prefix, x.Mask, x.Left, r)
+                else HashMapInner.Create(x.Prefix, x.Mask, x.Left, r)
             else
                 x:> _
 
@@ -936,13 +1709,13 @@ module internal HashMapOkasakiImplementation =
             if m = 0u then 
                 match x.Left.TryRemove(cmp, hash, key) with
                 | ValueSome (struct(value, ll)) ->
-                    ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, ll, x.Right)))
+                    ValueSome (struct(value, HashMapInner.Create(x.Prefix, x.Mask, ll, x.Right)))
                 | ValueNone ->
                     ValueNone
             elif m = 1u then
                 match x.Right.TryRemove(cmp, hash, key) with
                 | ValueSome (struct(value, rr)) ->
-                    ValueSome (struct(value, Node.Create(x.Prefix, x.Mask, x.Left, rr)))
+                    ValueSome (struct(value, HashMapInner.Create(x.Prefix, x.Mask, x.Left, rr)))
                 | ValueNone ->
                     ValueNone
             else
@@ -959,73 +1732,73 @@ module internal HashMapOkasakiImplementation =
                 x._Count <- x.Left.Count + x.Right.Count
                 x:> HashMapNode<_,_>
             else
-                let n = NoCollisionLeaf.New(hash, key, value)
-                Node.Join(x.Prefix, x, hash, n)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(x.Prefix, x, hash, n)
 
         override x.Add(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, value: 'V) =
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then 
-                Node.New(x.Prefix, x.Mask, x.Left.Add(cmp, hash, key, value), x.Right)
+                HashMapInner.New(x.Prefix, x.Mask, x.Left.Add(cmp, hash, key, value), x.Right)
             elif m = 1u then 
-                Node.New(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, hash, key, value))
+                HashMapInner.New(x.Prefix, x.Mask, x.Left, x.Right.Add(cmp, hash, key, value))
             else
-                let n = NoCollisionLeaf.New(hash, key, value)
-                Node.Join(x.Prefix, x, hash, n)
+                let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                HashMapInner.Join(x.Prefix, x, hash, n)
 
         override x.Alter(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: option<'V> -> option<'V>) =
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then 
                 let ll = x.Left.Alter(cmp, hash, key, update)
                 if ll == x.Left then x:> _
-                else Node.New(x.Prefix, x.Mask, ll, x.Right)
+                else HashMapInner.New(x.Prefix, x.Mask, ll, x.Right)
             elif m = 1u then
                 let rr = x.Right.Alter(cmp, hash, key, update)
                 if rr == x.Right then x:> _
-                else Node.New(x.Prefix, x.Mask, x.Left, rr)
+                else HashMapInner.New(x.Prefix, x.Mask, x.Left, rr)
             else
                 match update None with
                 | None -> x:> _
                 | Some value ->
-                    let n = NoCollisionLeaf.New(hash, key, value)
-                    Node.Join(x.Prefix, x, hash, n)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(x.Prefix, x, hash, n)
                     
         override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
             let m = matchPrefixAndGetBit hash x.Prefix x.Mask
             if m = 0u then 
                 let ll = x.Left.AlterV(cmp, hash, key, update)
                 if ll == x.Left then x:> _
-                else Node.New(x.Prefix, x.Mask, ll, x.Right)
+                else HashMapInner.New(x.Prefix, x.Mask, ll, x.Right)
             elif m = 1u then
                 let rr = x.Right.AlterV(cmp, hash, key, update)
                 if rr == x.Right then x:> _
-                else Node.New(x.Prefix, x.Mask, x.Left, rr)
+                else HashMapInner.New(x.Prefix, x.Mask, x.Left, rr)
             else
                 match update ValueNone with
                 | ValueNone -> x:> _
                 | ValueSome value ->
-                    let n = NoCollisionLeaf.New(hash, key, value)
-                    Node.Join(x.Prefix, x, hash, n)
+                    let n = HashMapNoCollisionLeaf.New(hash, key, value)
+                    HashMapInner.Join(x.Prefix, x, hash, n)
                     
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
-            Node.New(x.Prefix, x.Mask, x.Left.Map(mapping), x.Right.Map(mapping))
+            HashMapInner.New(x.Prefix, x.Mask, x.Left.Map(mapping), x.Right.Map(mapping))
   
         override x.Choose(mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) =
-            Node.Create(x.Prefix, x.Mask, x.Left.Choose(mapping), x.Right.Choose(mapping))
+            HashMapInner.Create(x.Prefix, x.Mask, x.Left.Choose(mapping), x.Right.Choose(mapping))
             
         override x.ChooseV(mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) =
-            Node.Create(x.Prefix, x.Mask, x.Left.ChooseV(mapping), x.Right.ChooseV(mapping))
+            HashMapInner.Create(x.Prefix, x.Mask, x.Left.ChooseV(mapping), x.Right.ChooseV(mapping))
       
         override x.ChooseV2(mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct(ValueOption<'T1> * ValueOption<'T2>)>) =
             let struct (la, lb) = x.Left.ChooseV2(mapping)
             let struct (ra, rb) = x.Right.ChooseV2(mapping)
 
             struct (
-                Node.Create(x.Prefix, x.Mask, la, ra),
-                Node.Create(x.Prefix, x.Mask, lb, rb)
+                HashMapInner.Create(x.Prefix, x.Mask, la, ra),
+                HashMapInner.Create(x.Prefix, x.Mask, lb, rb)
             )
       
         override x.Filter(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
-            Node.Create(x.Prefix, x.Mask, x.Left.Filter(predicate), x.Right.Filter(predicate))
+            HashMapInner.Create(x.Prefix, x.Mask, x.Left.Filter(predicate), x.Right.Filter(predicate))
             
         override x.Iter(action: OptimizedClosures.FSharpFunc<'K, 'V, unit>) =
             x.Left.Iter(action)
@@ -1047,31 +1820,66 @@ module internal HashMapOkasakiImplementation =
             x.Right.CopyTo(dst, index)
 
         static member New(p: uint32, m: Mask, l: HashMapNode<'K, 'V>, r: HashMapNode<'K, 'V>) : HashMapNode<'K, 'V> = 
-            new Node<'K, 'V>(Prefix = p, Mask = m, Left = l, Right = r, _Count = l.Count + r.Count) :> _
+            new HashMapInner<_,_>(Prefix = p, Mask = m, Left = l, Right = r, _Count = l.Count + r.Count) :> _
 
-    and [<AbstractClass>] NodeVisitor<'K, 'V, 'R>() =
-        abstract member VisitNode: Node<'K, 'V> -> 'R
-        abstract member VisitLeaf: CollisionLeaf<'K, 'V> -> 'R
-        abstract member VisitNoCollision: NoCollisionLeaf<'K, 'V> -> 'R
-        abstract member VisitEmpty: Empty<'K, 'V> -> 'R
+
+
+    [<AbstractClass>]
+    type HashSetVisitor<'T, 'R>() =
+        abstract member VisitEmpty : HashSetEmpty<'T> -> 'R
+        abstract member VisitNoCollision : HashSetNoCollisionLeaf<'T> -> 'R
+        abstract member VisitLeaf : HashSetCollisionLeaf<'T> -> 'R
+        abstract member VisitNode : HashSetInner<'T> -> 'R
+
+    [<AbstractClass>]
+    type HashMapVisitor<'K, 'V, 'R>() =
+        abstract member VisitNode: HashMapInner<'K, 'V> -> 'R
+        abstract member VisitLeaf: HashMapCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitNoCollision: HashMapNoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitEmpty: HashMapEmpty<'K, 'V> -> 'R
         
-    and [<AbstractClass>] NodeVisitor2<'K, 'V1, 'V2, 'R>() =
-        abstract member VisitNN     : Node<'K, 'V1> * Node<'K, 'V2> -> 'R
+    [<AbstractClass>]
+    type HashMapVisitor2<'K, 'V1, 'V2, 'R>() =
+        abstract member VisitNN     : HashMapInner<'K, 'V1> * HashMapInner<'K, 'V2> -> 'R
 
-        abstract member VisitNL     : Node<'K, 'V1> * Leaf<'K, 'V2> -> 'R
-        abstract member VisitLN     : Leaf<'K, 'V1> * Node<'K, 'V2> -> 'R
-        abstract member VisitLL     : Leaf<'K, 'V1> * Leaf<'K, 'V2> -> 'R
+        abstract member VisitNL     : HashMapInner<'K, 'V1> * HashMapLeaf<'K, 'V2> -> 'R
+        abstract member VisitLN     : HashMapLeaf<'K, 'V1> * HashMapInner<'K, 'V2> -> 'R
+        abstract member VisitLL     : HashMapLeaf<'K, 'V1> * HashMapLeaf<'K, 'V2> -> 'R
 
-        abstract member VisitAE     : HashMapNode<'K, 'V1> * Empty<'K, 'V2> -> 'R
-        abstract member VisitEA     : Empty<'K, 'V1> * HashMapNode<'K, 'V2> -> 'R
-        abstract member VisitEE     : Empty<'K, 'V1> * Empty<'K, 'V2> -> 'R
+        abstract member VisitAE     : HashMapNode<'K, 'V1> * HashMapEmpty<'K, 'V2> -> 'R
+        abstract member VisitEA     : HashMapEmpty<'K, 'V1> * HashMapNode<'K, 'V2> -> 'R
+        abstract member VisitEE     : HashMapEmpty<'K, 'V1> * HashMapEmpty<'K, 'V2> -> 'R
+  
+    [<AbstractClass>]
+    type HashSetMapVisitor<'K, 'V, 'R>() =
+        abstract member VisitNN     : HashSetInner<'K> * HashMapInner<'K, 'V> -> 'R
 
-    type Visit2Visitor<'K, 'V1, 'V2, 'R>(real : NodeVisitor2<'K, 'V1, 'V2, 'R>, node : HashMapNode<'K, 'V2>) =
-        inherit NodeVisitor<'K, 'V1, 'R>()
+        abstract member VisitNL     : HashSetInner<'K> * HashMapLeaf<'K, 'V> -> 'R
+        abstract member VisitLN     : HashSetLeaf<'K> * HashMapNode<'K, 'V> -> 'R
+        abstract member VisitLL     : HashSetLeaf<'K> * HashMapLeaf<'K, 'V> -> 'R
+
+        abstract member VisitAE     : HashSetNode<'K> * HashMapEmpty<'K, 'V> -> 'R
+        abstract member VisitEA     : HashSetEmpty<'K> * HashMapNode<'K, 'V> -> 'R
+        abstract member VisitEE     : HashSetEmpty<'K> * HashMapEmpty<'K, 'V> -> 'R
+        
+    [<AbstractClass>]
+    type HashSetVisitor2<'T, 'R>() =
+        abstract member VisitNN     : HashSetInner<'T> * HashSetInner<'T> -> 'R
+
+        abstract member VisitNL     : HashSetInner<'T> * HashSetLeaf<'T> -> 'R
+        abstract member VisitLN     : HashSetLeaf<'T> * HashSetInner<'T> -> 'R
+        abstract member VisitLL     : HashSetLeaf<'T> * HashSetLeaf<'T> -> 'R
+
+        abstract member VisitAE     : HashSetNode<'T> * HashSetEmpty<'T> -> 'R
+        abstract member VisitEA     : HashSetEmpty<'T> * HashSetNode<'T> -> 'R
+        abstract member VisitEE     : HashSetEmpty<'T> * HashSetEmpty<'T> -> 'R
+
+    type HashMapVisit2Visitor<'K, 'V1, 'V2, 'R>(real : HashMapVisitor2<'K, 'V1, 'V2, 'R>, node : HashMapNode<'K, 'V2>) =
+        inherit HashMapVisitor<'K,'V1,'R>()
 
         override x.VisitLeaf l = 
             node.Accept {
-                new NodeVisitor<'K, 'V2, 'R>() with
+                new HashMapVisitor<'K, 'V2, 'R>() with
                     member x.VisitLeaf r = real.VisitLL(l, r)
                     member x.VisitNode r = real.VisitLN(l, r)
                     member x.VisitNoCollision r = real.VisitLL(l, r)
@@ -1080,7 +1888,7 @@ module internal HashMapOkasakiImplementation =
             
         override x.VisitNode l = 
             node.Accept {
-                new NodeVisitor<'K, 'V2, 'R>() with
+                new HashMapVisitor<'K, 'V2, 'R>() with
                     member x.VisitLeaf r = real.VisitNL(l, r)
                     member x.VisitNode r = real.VisitNN(l, r)
                     member x.VisitNoCollision r = real.VisitNL(l, r)
@@ -1089,7 +1897,7 @@ module internal HashMapOkasakiImplementation =
             
         override x.VisitNoCollision l = 
             node.Accept {
-                new NodeVisitor<'K, 'V2, 'R>() with
+                new HashMapVisitor<'K, 'V2, 'R>() with
                     member x.VisitLeaf r = real.VisitLL(l, r)
                     member x.VisitNode r = real.VisitLN(l, r)
                     member x.VisitNoCollision r = real.VisitLL(l, r)
@@ -1098,21 +1906,106 @@ module internal HashMapOkasakiImplementation =
             
         override x.VisitEmpty l = 
             node.Accept {
-                new NodeVisitor<'K, 'V2, 'R>() with
+                new HashMapVisitor<'K, 'V2, 'R>() with
+                    member x.VisitLeaf r = real.VisitEA(l, r)
+                    member x.VisitNode r = real.VisitEA(l, r)
+                    member x.VisitNoCollision r = real.VisitEA(l, r)
+                    member x.VisitEmpty r = real.VisitEE(l, r)
+            }
+            
+    type HashSetVisit2Visitor<'T, 'R>(real : HashSetVisitor2<'T, 'R>, node : HashSetNode<'T>) =
+        inherit HashSetVisitor<'T,'R>()
+
+        override x.VisitLeaf l = 
+            node.Accept {
+                new HashSetVisitor<'T, 'R>() with
+                    member x.VisitLeaf r = real.VisitLL(l, r)
+                    member x.VisitNode r = real.VisitLN(l, r)
+                    member x.VisitNoCollision r = real.VisitLL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitNode l = 
+            node.Accept {
+                new HashSetVisitor<'T, 'R>() with
+                    member x.VisitLeaf r = real.VisitNL(l, r)
+                    member x.VisitNode r = real.VisitNN(l, r)
+                    member x.VisitNoCollision r = real.VisitNL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitNoCollision l = 
+            node.Accept {
+                new HashSetVisitor<'T, 'R>() with
+                    member x.VisitLeaf r = real.VisitLL(l, r)
+                    member x.VisitNode r = real.VisitLN(l, r)
+                    member x.VisitNoCollision r = real.VisitLL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitEmpty l = 
+            node.Accept {
+                new HashSetVisitor<'T, 'R>() with
+                    member x.VisitLeaf r = real.VisitEA(l, r)
+                    member x.VisitNode r = real.VisitEA(l, r)
+                    member x.VisitNoCollision r = real.VisitEA(l, r)
+                    member x.VisitEmpty r = real.VisitEE(l, r)
+            }
+            
+    type HashMapSetVisit2Visitor<'K, 'V, 'R>(real : HashSetMapVisitor<'K, 'V, 'R>, node : HashMapNode<'K, 'V>) =
+        inherit HashSetVisitor<'K,'R>()
+
+        override x.VisitLeaf l = 
+            node.Accept {
+                new HashMapVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitLL(l, r)
+                    member x.VisitNode r = real.VisitLN(l, r)
+                    member x.VisitNoCollision r = real.VisitLL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitNode l = 
+            node.Accept {
+                new HashMapVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitNL(l, r)
+                    member x.VisitNode r = real.VisitNN(l, r)
+                    member x.VisitNoCollision r = real.VisitNL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitNoCollision l = 
+            node.Accept {
+                new HashMapVisitor<'K, 'V, 'R>() with
+                    member x.VisitLeaf r = real.VisitLL(l, r)
+                    member x.VisitNode r = real.VisitLN(l, r)
+                    member x.VisitNoCollision r = real.VisitLL(l, r)
+                    member x.VisitEmpty r = real.VisitAE(l, r)
+            }
+            
+        override x.VisitEmpty l = 
+            node.Accept {
+                new HashMapVisitor<'K, 'V, 'R>() with
                     member x.VisitLeaf r = real.VisitEA(l, r)
                     member x.VisitNode r = real.VisitEA(l, r)
                     member x.VisitNoCollision r = real.VisitEA(l, r)
                     member x.VisitEmpty r = real.VisitEE(l, r)
             }
 
-    module Visit2 = 
-        let visit (v : NodeVisitor2<'K, 'V1, 'V2, 'R>) (l : HashMapNode<'K, 'V1>) (r : HashMapNode<'K, 'V2>) =
-            l.Accept (Visit2Visitor(v, r))
+    module HashMapNode = 
+        let visit2 (v : HashMapVisitor2<'K, 'V1, 'V2, 'R>) (l : HashMapNode<'K, 'V1>) (r : HashMapNode<'K, 'V2>) =
+            l.Accept (HashMapVisit2Visitor(v, r))
+            
+    module HashSetNode = 
+        let visit2 (v : HashSetVisitor2<'T, 'R>) (l : HashSetNode<'T>) (r : HashSetNode<'T>) =
+            l.Accept (HashSetVisit2Visitor(v, r))
+
+        let visitMap2 (v : HashSetMapVisitor<'K, 'V, 'R>) (l : HashSetNode<'K>) (r : HashMapNode<'K, 'V>) =
+            l.Accept (HashMapSetVisit2Visitor(v, r))
 
 [<Struct>]
 type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNode<'K, 'V>) =
 
-    static member Empty = HashMapOkasaki<'K, 'V>(EqualityComparer<'K>.Default, Empty.Instance)
+    static member Empty = HashMapOkasaki<'K, 'V>(EqualityComparer<'K>.Default, HashMapEmpty.Instance)
 
     member x.Count = root.Count
     member x.IsEmpty = root.IsEmpty
@@ -1122,12 +2015,12 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member Single(key: 'K, value : 'V) =  
         let cmp = EqualityComparer<'K>.Default
-        HashMapOkasaki(cmp, NoCollisionLeaf.New(uint32 (cmp.GetHashCode key), key, value))
+        HashMapOkasaki(cmp, HashMapNoCollisionLeaf.New(uint32 (cmp.GetHashCode key), key, value))
         
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member OfSeq(elements: seq<'K * 'V>) =  
         let cmp = EqualityComparer<'K>.Default
-        let mutable r = HashMapOkasakiImplementation.Empty<'K, 'V>.Instance 
+        let mutable r = HashMapOkasakiImplementation.HashMapEmpty.Instance 
         for (k, v) in elements do
             let hash = cmp.GetHashCode k |> uint32
             r <- r.AddInPlaceUnsafe(cmp, hash, k, v)
@@ -1136,7 +2029,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member OfList(elements: list<'K * 'V>) =  
         let cmp = EqualityComparer<'K>.Default
-        let mutable r = HashMapOkasakiImplementation.Empty<'K, 'V>.Instance 
+        let mutable r = HashMapOkasakiImplementation.HashMapEmpty.Instance 
         for (k, v) in elements do
             let hash = cmp.GetHashCode k |> uint32
             r <- r.AddInPlaceUnsafe(cmp, hash, k, v)
@@ -1145,7 +2038,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member OfListUnoptimized(elements: list<'K * 'V>) =  
         let cmp = EqualityComparer<'K>.Default
-        let mutable r = HashMapOkasakiImplementation.Empty<'K, 'V>.Instance 
+        let mutable r = HashMapOkasakiImplementation.HashMapEmpty.Instance 
         for (k, v) in elements do
             let hash = cmp.GetHashCode k |> uint32
             r <- r.Add(cmp, hash, k, v)
@@ -1154,7 +2047,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member OfArray(elements: array<'K * 'V>) =  
         let cmp = EqualityComparer<'K>.Default
-        let mutable r = HashMapOkasakiImplementation.Empty<'K, 'V>.Instance 
+        let mutable r = HashMapOkasakiImplementation.HashMapEmpty.Instance 
         for (k, v) in elements do
             let hash = cmp.GetHashCode k |> uint32
             r <- r.AddInPlaceUnsafe(cmp, hash, k, v)
@@ -1270,21 +2163,21 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
 
         let result = 
             let cnt = ()
-            (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'OP>>() with
+            (l.Root, r.Root) ||> HashMapNode.visit2 {
+                new HashMapVisitor2<'K, 'V, 'V, HashMapNode<'K, 'OP>>() with
 
-                    member x.VisitEE(_, _) = Empty<'K, 'OP>.Instance
+                    member x.VisitEE(_, _) = HashMapEmpty.Instance
                     member x.VisitEA(_, r) = r.Map(add)
                     member x.VisitAE(l, _) = l.Map(remove)
 
                     member x.VisitLL(l, r) = 
                         if l == r then
-                            Empty<'K, 'OP>.Instance
+                            HashMapEmpty.Instance
                         else
                             len := 0
                             if l.LHash = r.LHash then
                                 let mutable r = r :> HashMapNode<_,_>
-                                let mutable res = Empty<'K, 'OP>.Instance
+                                let mutable res = HashMapEmpty.Instance
                                 let hash = l.LHash
                         
                                 l.ToArray(arr, len)
@@ -1319,47 +2212,47 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                     member x.VisitLN(l, r) =
                         let b = matchPrefixAndGetBit l.LHash r.Prefix r.Mask
                         if b = 0u then
-                            Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right.Map(add))
+                            HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right.Map(add))
                         elif b = 1u then
-                            Node.Create(r.Prefix, r.Mask, r.Left.Map(add), Visit2.visit x l r.Right)
+                            HashMapInner.Create(r.Prefix, r.Mask, r.Left.Map(add), HashMapNode.visit2 x l r.Right)
                         else
-                            Node.Join(l.LHash, l.Map(remove), r.Prefix, r.Map(add))
+                            HashMapInner.Join(l.LHash, l.Map(remove), r.Prefix, r.Map(add))
 
                     member x.VisitNL(l, r) =
                         let b = matchPrefixAndGetBit r.LHash l.Prefix l.Mask
                         if b = 0u then
-                            Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right.Map(remove))
+                            HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right.Map(remove))
                         elif b = 1u then
-                            Node.Create(l.Prefix, l.Mask, l.Left.Map(remove), Visit2.visit x l.Right r)
+                            HashMapInner.Create(l.Prefix, l.Mask, l.Left.Map(remove), HashMapNode.visit2 x l.Right r)
                         else
-                            Node.Join(l.Prefix, l.Map(remove), r.LHash, r.Map(add))
+                            HashMapInner.Join(l.Prefix, l.Map(remove), r.LHash, r.Map(add))
 
                     member x.VisitNN(l, r) = 
                         if l == r then
-                            Empty<'K, 'OP>.Instance
+                            HashMapEmpty.Instance
                         else
                             let cc = compareMasks l.Mask r.Mask
                             if cc = 0 then
-                                let l' = (l.Left, r.Left) ||> Visit2.visit x
-                                let r' = (l.Right, r.Right) ||> Visit2.visit x
-                                Node.Create(l.Prefix, l.Mask, l', r')
+                                let l' = (l.Left, r.Left) ||> HashMapNode.visit2 x
+                                let r' = (l.Right, r.Right) ||> HashMapNode.visit2 x
+                                HashMapInner.Create(l.Prefix, l.Mask, l', r')
                             elif cc > 0 then
                                 let lr = matchPrefixAndGetBit l.Prefix r.Prefix r.Mask
                                 if lr = 0u then
-                                    Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right.Map(add))
+                                    HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right.Map(add))
                                 elif lr = 1u then
-                                    Node.Create(r.Prefix, r.Mask, r.Left.Map(add), Visit2.visit x l r.Right)
+                                    HashMapInner.Create(r.Prefix, r.Mask, r.Left.Map(add), HashMapNode.visit2 x l r.Right)
                                 else
-                                    Node.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(add))
+                                    HashMapInner.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(add))
                             else
                                 let rl = matchPrefixAndGetBit r.Prefix l.Prefix l.Mask
                             
                                 if rl = 0u then
-                                    Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right.Map(remove))
+                                    HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right.Map(remove))
                                 elif rl = 1u then
-                                    Node.Create(l.Prefix, l.Mask, l.Left.Map(remove), Visit2.visit x l.Right r)
+                                    HashMapInner.Create(l.Prefix, l.Mask, l.Left.Map(remove), HashMapNode.visit2 x l.Right r)
                                 else
-                                    Node.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(add))
+                                    HashMapInner.Join(l.Prefix, l.Map(remove), r.Prefix, r.Map(add))
                                     
             }
 
@@ -1375,10 +2268,10 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
 
         let result = 
             let cnt = ()
-            (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
+            (l.Root, r.Root) ||> HashMapNode.visit2 {
+                new HashMapVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
 
-                    member x.VisitEE(_, _) = Empty<'K, 'V>.Instance
+                    member x.VisitEE(_, _) = HashMapEmpty.Instance
                     member x.VisitEA(_, r) = r
                     member x.VisitAE(l, _) = l
 
@@ -1386,7 +2279,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                         len := 0
                         if l.LHash = r.LHash then
                             let mutable r = r :> HashMapNode<_,_>
-                            let mutable res = Empty<'K, 'V>.Instance
+                            let mutable res = HashMapEmpty.Instance
                             let hash = l.LHash
                     
                             l.ToArray(arr, len)
@@ -1408,50 +2301,50 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                     
                             res
                         else
-                            Node.Join(l.LHash, l, r.LHash, r)
+                            HashMapInner.Join(l.LHash, l, r.LHash, r)
                          
 
                     member x.VisitLN(l, r) =
                         let b = matchPrefixAndGetBit l.LHash r.Prefix r.Mask
                         if b = 0u then
-                            Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right)
+                            HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right)
                         elif b = 1u then
-                            Node.Create(r.Prefix, r.Mask, r.Left, Visit2.visit x l r.Right)
+                            HashMapInner.Create(r.Prefix, r.Mask, r.Left, HashMapNode.visit2 x l r.Right)
                         else
-                            Node.Join(l.LHash, l, r.Prefix, r)
+                            HashMapInner.Join(l.LHash, l, r.Prefix, r)
 
                     member x.VisitNL(l, r) =
                         let b = matchPrefixAndGetBit r.LHash l.Prefix l.Mask
                         if b = 0u then
-                            Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right)
+                            HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right)
                         elif b = 1u then
-                            Node.Create(l.Prefix, l.Mask, l.Left, Visit2.visit x l.Right r)
+                            HashMapInner.Create(l.Prefix, l.Mask, l.Left, HashMapNode.visit2 x l.Right r)
                         else
-                            Node.Join(l.Prefix, l, r.LHash, r)
+                            HashMapInner.Join(l.Prefix, l, r.LHash, r)
 
                     member x.VisitNN(l, r) = 
                         let cc = compareMasks l.Mask r.Mask
                         if cc = 0 then
-                            let l' = (l.Left, r.Left) ||> Visit2.visit x
-                            let r' = (l.Right, r.Right) ||> Visit2.visit x
-                            Node.Create(l.Prefix, l.Mask, l', r')
+                            let l' = (l.Left, r.Left) ||> HashMapNode.visit2 x
+                            let r' = (l.Right, r.Right) ||> HashMapNode.visit2 x
+                            HashMapInner.Create(l.Prefix, l.Mask, l', r')
                         elif cc > 0 then
                             let lr = matchPrefixAndGetBit l.Prefix r.Prefix r.Mask
                             if lr = 0u then
-                                Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right)
+                                HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right)
                             elif lr = 1u then
-                                Node.Create(r.Prefix, r.Mask, r.Left, Visit2.visit x l r.Right)
+                                HashMapInner.Create(r.Prefix, r.Mask, r.Left, HashMapNode.visit2 x l r.Right)
                             else
-                                Node.Join(l.Prefix, l, r.Prefix, r)
+                                HashMapInner.Join(l.Prefix, l, r.Prefix, r)
                         else
                             let rl = matchPrefixAndGetBit r.Prefix l.Prefix l.Mask
                         
                             if rl = 0u then
-                                Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right)
+                                HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right)
                             elif rl = 1u then
-                                Node.Create(l.Prefix, l.Mask, l.Left, Visit2.visit x l.Right r)
+                                HashMapInner.Create(l.Prefix, l.Mask, l.Left, HashMapNode.visit2 x l.Right r)
                             else
-                                Node.Join(l.Prefix, l, r.Prefix, r)
+                                HashMapInner.Join(l.Prefix, l, r.Prefix, r)
                                 
             }
 
@@ -1465,10 +2358,10 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
         let cmp = EqualityComparer<'K>.Default
 
         let result = 
-            (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
+            (l.Root, r.Root) ||> HashMapNode.visit2 {
+                new HashMapVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
 
-                    member x.VisitEE(_, _) = Empty<'K, 'V>.Instance
+                    member x.VisitEE(_, _) = HashMapEmpty.Instance
                     member x.VisitEA(_, r) = r
                     member x.VisitAE(l, _) = l
 
@@ -1479,7 +2372,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                             len := 0
                             if l.LHash = r.LHash then
                                 let mutable r = r :> HashMapNode<_,_>
-                                let mutable res = Empty<'K, 'V>.Instance
+                                let mutable res = HashMapEmpty.Instance
                                 let hash = l.LHash
                 
                                 l.ToArray(arr, len)
@@ -1500,26 +2393,26 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                 
                                 res
                             else
-                                Node.Join(l.LHash, l, r.LHash, r)
+                                HashMapInner.Join(l.LHash, l, r.LHash, r)
                      
 
                     member x.VisitLN(l, r) =
                         let b = matchPrefixAndGetBit l.LHash r.Prefix r.Mask
                         if b = 0u then
-                            Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right)
+                            HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right)
                         elif b = 1u then
-                            Node.Create(r.Prefix, r.Mask, r.Left, Visit2.visit x l r.Right)
+                            HashMapInner.Create(r.Prefix, r.Mask, r.Left, HashMapNode.visit2 x l r.Right)
                         else
-                            Node.Join(l.LHash, l, r.Prefix, r)
+                            HashMapInner.Join(l.LHash, l, r.Prefix, r)
 
                     member x.VisitNL(l, r) =
                         let b = matchPrefixAndGetBit r.LHash l.Prefix l.Mask
                         if b = 0u then
-                            Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right)
+                            HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right)
                         elif b = 1u then
-                            Node.Create(l.Prefix, l.Mask, l.Left, Visit2.visit x l.Right r)
+                            HashMapInner.Create(l.Prefix, l.Mask, l.Left, HashMapNode.visit2 x l.Right r)
                         else
-                            Node.Join(l.Prefix, l, r.LHash, r)
+                            HashMapInner.Join(l.Prefix, l, r.LHash, r)
 
                     member x.VisitNN(l, r) = 
                         if l == r then 
@@ -1527,26 +2420,26 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                         else
                             let cc = compareMasks l.Mask r.Mask
                             if cc = 0 then
-                                let l' = (l.Left, r.Left) ||> Visit2.visit x
-                                let r' = (l.Right, r.Right) ||> Visit2.visit x
-                                Node.Create(l.Prefix, l.Mask, l', r')
+                                let l' = (l.Left, r.Left) ||> HashMapNode.visit2 x
+                                let r' = (l.Right, r.Right) ||> HashMapNode.visit2 x
+                                HashMapInner.Create(l.Prefix, l.Mask, l', r')
                             elif cc > 0 then
                                 let lr = matchPrefixAndGetBit l.Prefix r.Prefix r.Mask
                                 if lr = 0u then
-                                    Node.Create(r.Prefix, r.Mask, Visit2.visit x l r.Left, r.Right)
+                                    HashMapInner.Create(r.Prefix, r.Mask, HashMapNode.visit2 x l r.Left, r.Right)
                                 elif lr = 1u then
-                                    Node.Create(r.Prefix, r.Mask, r.Left, Visit2.visit x l r.Right)
+                                    HashMapInner.Create(r.Prefix, r.Mask, r.Left, HashMapNode.visit2 x l r.Right)
                                 else
-                                    Node.Join(l.Prefix, l, r.Prefix, r)
+                                    HashMapInner.Join(l.Prefix, l, r.Prefix, r)
                             else
                                 let rl = matchPrefixAndGetBit r.Prefix l.Prefix l.Mask
                     
                                 if rl = 0u then
-                                    Node.Create(l.Prefix, l.Mask, Visit2.visit x l.Left r, l.Right)
+                                    HashMapInner.Create(l.Prefix, l.Mask, HashMapNode.visit2 x l.Left r, l.Right)
                                 elif rl = 1u then
-                                    Node.Create(l.Prefix, l.Mask, l.Left, Visit2.visit x l.Right r)
+                                    HashMapInner.Create(l.Prefix, l.Mask, l.Left, HashMapNode.visit2 x l.Right r)
                                 else
-                                    Node.Join(l.Prefix, l, r.Prefix, r)
+                                    HashMapInner.Join(l.Prefix, l, r.Prefix, r)
                             
             }
 
@@ -1566,24 +2459,24 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
 
         let struct(result, delta) = 
             let cnt = ()
-            (state.Root, delta.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'D, struct(HashMapNode<'K, 'V> * HashMapNode<'K, 'D>)>() with
+            (state.Root, delta.Root) ||> HashMapNode.visit2 {
+                new HashMapVisitor2<'K, 'V, 'D, struct (HashMapNode<'K, 'V> * HashMapNode<'K, 'D>)>() with
 
                     member x.VisitEE(_, _) = 
-                        struct (Empty.Instance, Empty.Instance)
+                        struct (HashMapEmpty.Instance, HashMapEmpty.Instance)
 
                     member x.VisitEA(_, r) =    
                         r.ChooseV2 onlyDelta
 
                     member x.VisitAE(l, _) = 
-                        struct(l, Empty.Instance)
+                        struct(l, HashMapEmpty.Instance)
 
                     member x.VisitLL(state, delta) = 
                         len := 0
                         if state.LHash = delta.LHash then
                             let mutable delta = delta :> HashMapNode<_,_>
-                            let mutable resState = Empty<'K, 'V>.Instance
-                            let mutable resDelta = Empty<'K, 'D>.Instance
+                            let mutable resState = HashMapEmpty.Instance
+                            let mutable resDelta = HashMapEmpty.Instance
                             let hash = state.LHash
                     
                             state.ToArray(arr1, len)
@@ -1621,104 +2514,104 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
                         else
                             let struct (ds, dd) = delta.ChooseV2(onlyDelta)
                             struct (
-                                Node.Join(state.LHash, state, delta.LHash, ds),
+                                HashMapInner.Join(state.LHash, state, delta.LHash, ds),
                                 dd
                             )
 
                     member x.VisitLN(state, delta) =
                         let b = matchPrefixAndGetBit state.LHash delta.Prefix delta.Mask
                         if b = 0u then
-                            let struct (ls, ld) = Visit2.visit x state delta.Left
+                            let struct (ls, ld) = HashMapNode.visit2 x state delta.Left
                             let struct (rs, rd) = delta.Right.ChooseV2(onlyDelta)
                             struct(
-                                Node.Create(delta.Prefix, delta.Mask, ls, rs),
-                                Node.Create(delta.Prefix, delta.Mask, ld, rd)
+                                HashMapInner.Create(delta.Prefix, delta.Mask, ls, rs),
+                                HashMapInner.Create(delta.Prefix, delta.Mask, ld, rd)
                             )
                         elif b = 1u then
                             let struct (ls, ld) = delta.Left.ChooseV2(onlyDelta)
-                            let struct (rs, rd) = Visit2.visit x state delta.Right
+                            let struct (rs, rd) = HashMapNode.visit2 x state delta.Right
                             struct(
-                                Node.Create(delta.Prefix, delta.Mask, ls, rs),
-                                Node.Create(delta.Prefix, delta.Mask, ld, rd)
+                                HashMapInner.Create(delta.Prefix, delta.Mask, ls, rs),
+                                HashMapInner.Create(delta.Prefix, delta.Mask, ld, rd)
                             )
                         else
                             let struct (ds, dd) = delta.ChooseV2(onlyDelta)
                             struct(
-                                Node.Join(state.LHash, state, delta.Prefix, ds),
+                                HashMapInner.Join(state.LHash, state, delta.Prefix, ds),
                                 dd
                             )
 
                     member x.VisitNL(l, r) =
                         let b = matchPrefixAndGetBit r.LHash l.Prefix l.Mask
                         if b = 0u then
-                            let struct (ls, ld) = Visit2.visit x l.Left r
+                            let struct (ls, ld) = HashMapNode.visit2 x l.Left r
                             struct (
-                                Node.Create(l.Prefix, l.Mask, ls, l.Right),
+                                HashMapInner.Create(l.Prefix, l.Mask, ls, l.Right),
                                 ld
                             )
                         elif b = 1u then
-                            let struct (rs, rd) = Visit2.visit x l.Right r
+                            let struct (rs, rd) = HashMapNode.visit2 x l.Right r
                             struct (
-                                Node.Create(l.Prefix, l.Mask, l.Left, rs),
+                                HashMapInner.Create(l.Prefix, l.Mask, l.Left, rs),
                                 rd
                             )
                         else
                             let struct (rs, rd) = r.ChooseV2(onlyDelta)
                             struct (
-                                Node.Join(l.Prefix, l, r.LHash, rs),
+                                HashMapInner.Join(l.Prefix, l, r.LHash, rs),
                                 rd
                             )
 
                     member x.VisitNN(l, r) = 
                         let cc = compareMasks l.Mask r.Mask
                         if cc = 0 then
-                            let struct (ls, ld) = (l.Left, r.Left) ||> Visit2.visit x
-                            let struct (rs, rd) = (l.Right, r.Right) ||> Visit2.visit x
+                            let struct (ls, ld) = (l.Left, r.Left) ||> HashMapNode.visit2 x
+                            let struct (rs, rd) = (l.Right, r.Right) ||> HashMapNode.visit2 x
                             struct (
-                                Node.Create(l.Prefix, l.Mask, ls, rs),
-                                Node.Create(l.Prefix, l.Mask, ld, rd)
+                                HashMapInner.Create(l.Prefix, l.Mask, ls, rs),
+                                HashMapInner.Create(l.Prefix, l.Mask, ld, rd)
                             )
                         elif cc > 0 then
                             let lr = matchPrefixAndGetBit l.Prefix r.Prefix r.Mask
                             if lr = 0u then
-                                let struct (ls, ld) = Visit2.visit x l r.Left
+                                let struct (ls, ld) = HashMapNode.visit2 x l r.Left
                                 let struct (rs, rd) = r.Right.ChooseV2(onlyDelta)
                                 struct (
-                                    Node.Create(r.Prefix, r.Mask, ls, rs),
-                                    Node.Create(r.Prefix, r.Mask, ld, rd)
+                                    HashMapInner.Create(r.Prefix, r.Mask, ls, rs),
+                                    HashMapInner.Create(r.Prefix, r.Mask, ld, rd)
                                 )
                             elif lr = 1u then
                                 let struct (ls, ld) = r.Left.ChooseV2(onlyDelta)
-                                let struct (rs, rd) = Visit2.visit x l r.Right
+                                let struct (rs, rd) = HashMapNode.visit2 x l r.Right
                                 struct (
-                                    Node.Create(r.Prefix, r.Mask, ls, rs),
-                                    Node.Create(r.Prefix, r.Mask, ld, rd)
+                                    HashMapInner.Create(r.Prefix, r.Mask, ls, rs),
+                                    HashMapInner.Create(r.Prefix, r.Mask, ld, rd)
                                 )
                             else
                                 let struct (rs, rd) = r.ChooseV2 onlyDelta
                                 struct (
-                                    Node.Join(l.Prefix, l, r.Prefix, rs),
+                                    HashMapInner.Join(l.Prefix, l, r.Prefix, rs),
                                     rd
                                 )
                         else
                             let rl = matchPrefixAndGetBit r.Prefix l.Prefix l.Mask
                         
                             if rl = 0u then
-                                let struct (ls, ld) = Visit2.visit x l.Left r
+                                let struct (ls, ld) = HashMapNode.visit2 x l.Left r
                                 struct (
-                                    Node.Create(l.Prefix, l.Mask, ls, l.Right),
+                                    HashMapInner.Create(l.Prefix, l.Mask, ls, l.Right),
                                     ld
                                 )
                             elif rl = 1u then
-                                let struct (rs, rd) = Visit2.visit x l.Right r
+                                let struct (rs, rd) = HashMapNode.visit2 x l.Right r
                                 struct (
-                                    Node.Create(l.Prefix, l.Mask, l.Left, rs),
+                                    HashMapInner.Create(l.Prefix, l.Mask, l.Left, rs),
                                     rd
                                 )
                             else
                                 let struct (rs, rd) = r.ChooseV2 onlyDelta
                                 struct (
-                                    Node.Join(l.Prefix, l, r.Prefix, rs),
+                                    HashMapInner.Join(l.Prefix, l, r.Prefix, rs),
                                     rd
                                 )
                                 
@@ -1746,25 +2639,25 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNod
 
 and internal HashMapOkasakiEnumerator<'K, 'V>(root: HashMapNode<'K, 'V>) =
     let mutable stack = [root]
-    let mutable linked: Linked<'K, 'V> = null
+    let mutable linked: HashMapLinked<'K, 'V> = null
     let mutable current = Unchecked.defaultof<'K * 'V>
 
     member x.MoveNext() =
         if isNull linked then
             match stack with
-            | (:? Empty<'K, 'V>) :: rest ->
+            | (:? HashMapEmpty<'K, 'V>) :: rest ->
                 stack <- rest 
                 x.MoveNext()
-            | (:? NoCollisionLeaf<'K, 'V> as l) :: rest ->
+            | (:? HashMapNoCollisionLeaf<'K, 'V> as l) :: rest ->
                 stack <- rest
                 current <- l.Key, l.Value
                 true
-            | (:? CollisionLeaf<'K, 'V> as l) :: rest -> 
+            | (:? HashMapCollisionLeaf<'K, 'V> as l) :: rest -> 
                 stack <- rest
                 current <- l.Key, l.Value
                 linked <- l.Next
                 true
-            | (:? Node<'K, 'V> as n) :: rest ->
+            | (:? HashMapInner<'K, 'V> as n) :: rest ->
                 stack <- n.Left:: n.Right:: rest
                 x.MoveNext()
             | _ ->
