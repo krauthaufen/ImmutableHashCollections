@@ -63,9 +63,9 @@ module internal HashMapOkasakiImplementation =
         if Bmi1.IsSupported then
             int (r &&& 0xFFu) - int (l &&& 0xFFu)
         else
-            compare l r
+            compare r l
         #else
-        compare l r
+        compare r l
         #endif
 
 
@@ -129,12 +129,37 @@ module internal HashMapOkasakiImplementation =
                 | None -> 
                     n.Next
             else
-                Linked(n.Key, n.Value, alter cmp key update n.Next)
+                let next = alter cmp key update n.Next
+                if next == n.Next then n
+                else Linked(n.Key, n.Value, next)
+               
+        let rec alterV (cmp: EqualityComparer<'K>) (key: 'K) (update: voption<'V> -> voption<'V>) (n: Linked<'K, 'V>) =
+            if isNull n then
+                match update ValueNone with
+                | ValueSome value -> 
+                    Linked(key, value)
+                | ValueNone ->
+                    null
+            elif cmp.Equals(n.Key, key) then
+                match update (ValueSome n.Value) with
+                | ValueSome value -> 
+                    Linked(key, value, n.Next)
+                | ValueNone -> 
+                    n.Next
+            else
+                let next = alterV cmp key update n.Next
+                if next == n.Next then n
+                else Linked(n.Key, n.Value, next)
                
         let rec tryFind (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
             if isNull n then None
             elif cmp.Equals(n.Key, key) then Some n.Value
             else tryFind cmp key n.Next
+            
+        let rec tryFindV (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
+            if isNull n then ValueNone
+            elif cmp.Equals(n.Key, key) then ValueSome n.Value
+            else tryFindV cmp key n.Next
             
         let rec containsKey (cmp: EqualityComparer<'K>) (key: 'K) (n: Linked<'K, 'V>) =
             if isNull n then false
@@ -244,24 +269,26 @@ module internal HashMapOkasakiImplementation =
     
 
     [<AbstractClass>]
-    type AbstractNode<'K, 'V>() =
-        abstract member Remove: EqualityComparer<'K> * uint32 * 'K -> AbstractNode<'K, 'V>
-        abstract member TryRemove: EqualityComparer<'K> * uint32 * 'K -> ValueOption<struct ('V * AbstractNode<'K, 'V>)>
+    type HashMapNode<'K, 'V>() =
+        abstract member Remove: EqualityComparer<'K> * uint32 * 'K -> HashMapNode<'K, 'V>
+        abstract member TryRemove: EqualityComparer<'K> * uint32 * 'K -> ValueOption<struct ('V * HashMapNode<'K, 'V>)>
 
         abstract member Count : int
 
-        abstract member AddInPlaceUnsafe: EqualityComparer<'K> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
-        abstract member Add: EqualityComparer<'K> * uint32 * 'K * 'V -> AbstractNode<'K, 'V>
-        abstract member Alter: EqualityComparer<'K> * uint32 * 'K * (option<'V> -> option<'V>) -> AbstractNode<'K, 'V>
+        abstract member AddInPlaceUnsafe: EqualityComparer<'K> * uint32 * 'K * 'V -> HashMapNode<'K, 'V>
+        abstract member Add: EqualityComparer<'K> * uint32 * 'K * 'V -> HashMapNode<'K, 'V>
+        abstract member Alter: EqualityComparer<'K> * uint32 * 'K * (option<'V> -> option<'V>) -> HashMapNode<'K, 'V>
         abstract member TryFind: EqualityComparer<'K> * uint32 * 'K -> option<'V>
+        abstract member AlterV: EqualityComparer<'K> * uint32 * 'K * (voption<'V> -> voption<'V>) -> HashMapNode<'K, 'V>
+        abstract member TryFindV: EqualityComparer<'K> * uint32 * 'K -> voption<'V>
         abstract member ContainsKey: EqualityComparer<'K> * uint32 * 'K -> bool
         abstract member IsEmpty: bool
 
-        abstract member Map: mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T> -> AbstractNode<'K, 'T>
-        abstract member Choose: mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>> -> AbstractNode<'K, 'T>
-        abstract member ChooseV: mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>> -> AbstractNode<'K, 'T>
-        abstract member ChooseV2: mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct(ValueOption<'T1> * ValueOption<'T2>)> -> struct (AbstractNode<'K, 'T1> * AbstractNode<'K, 'T2>)
-        abstract member Filter: mapping: OptimizedClosures.FSharpFunc<'K, 'V, bool> -> AbstractNode<'K, 'V>
+        abstract member Map: mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T> -> HashMapNode<'K, 'T>
+        abstract member Choose: mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>> -> HashMapNode<'K, 'T>
+        abstract member ChooseV: mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>> -> HashMapNode<'K, 'T>
+        abstract member ChooseV2: mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct(ValueOption<'T1> * ValueOption<'T2>)> -> struct (HashMapNode<'K, 'T1> * HashMapNode<'K, 'T2>)
+        abstract member Filter: mapping: OptimizedClosures.FSharpFunc<'K, 'V, bool> -> HashMapNode<'K, 'V>
         abstract member Iter: action: OptimizedClosures.FSharpFunc<'K, 'V, unit> -> unit
         abstract member Fold: acc: OptimizedClosures.FSharpFunc<'S, 'K, 'V, 'S> * seed : 'S -> 'S
         abstract member Exists: predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool> -> bool
@@ -274,21 +301,19 @@ module internal HashMapOkasakiImplementation =
         abstract member CopyTo: dst: ('K * 'V) array * index : ref<int> -> unit
 
     and [<AbstractClass>] Leaf<'K, 'V>() =
-        inherit AbstractNode<'K, 'V>()
+        inherit HashMapNode<'K, 'V>()
         abstract member LHash : uint32
         abstract member LKey : 'K
         abstract member LValue : 'V
         abstract member LNext : Linked<'K, 'V>
-
-    and [<AbstractClass>] NodeVisitor<'K, 'V, 'R>() =
-        abstract member VisitNode: Node<'K, 'V> -> 'R
-        abstract member VisitLeaf: CollisionLeaf<'K, 'V> -> 'R
-        abstract member VisitNoCollision: NoCollisionLeaf<'K, 'V> -> 'R
-        abstract member VisitEmpty: Empty<'K, 'V> -> 'R
         
+        static member inline New(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) : HashMapNode<'K, 'V> = 
+            if isNull n then new NoCollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
+            else new CollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
+     
     and [<Sealed>] Empty<'K, 'V> private() =
-        inherit AbstractNode<'K, 'V>()
-        static let instance = Empty<'K, 'V>() :> AbstractNode<_,_>
+        inherit HashMapNode<'K, 'V>()
+        static let instance = Empty<'K, 'V>() :> HashMapNode<_,_>
         static member Instance = instance
 
         override x.Count = 0
@@ -303,6 +328,9 @@ module internal HashMapOkasakiImplementation =
 
         override x.TryFind(_cmp: EqualityComparer<'K>, _hash: uint32, _key: 'K) =
             None
+            
+        override x.TryFindV(_cmp: EqualityComparer<'K>, _hash: uint32, _key: 'K) =
+            ValueNone
 
         override x.ContainsKey(_cmp: EqualityComparer<'K>, _hash: uint32, _key: 'K) =
             false
@@ -323,6 +351,12 @@ module internal HashMapOkasakiImplementation =
             match update None with
             | None -> x:> _
             | Some value ->
+                NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+                
+        override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
+            match update ValueNone with
+            | ValueNone -> x:> _
+            | ValueSome value ->
                 NoCollisionLeaf<'K, 'V>.New(hash, key, value)
 
         override x.Map(_mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
@@ -355,7 +389,7 @@ module internal HashMapOkasakiImplementation =
         override x.CopyTo(_dst : ('K * 'V) array, _index : ref<int>) =
             ()
 
-    and [<Sealed>] CollisionLeaf<'K, 'V> private() =
+    and [<Sealed>] CollisionLeaf<'K, 'V>() =
         inherit Leaf<'K, 'V>()
 
         [<DefaultValue>]
@@ -419,6 +453,16 @@ module internal HashMapOkasakiImplementation =
                     Linked.tryFind cmp key x.Next
             else
                 None
+
+        override x.TryFindV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =   
+            if hash = x.Hash then
+                if cmp.Equals(key, x.Key) then 
+                    ValueSome x.Value
+                else
+                    Linked.tryFindV cmp key x.Next
+            else
+                ValueNone
+
         override x.ContainsKey(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =   
             if hash = x.Hash then
                 if cmp.Equals(key, x.Key) then 
@@ -433,13 +477,13 @@ module internal HashMapOkasakiImplementation =
                 if cmp.Equals(key, x.Key) then
                     match Linked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
-                        CollisionLeaf.New(hash, k, v, rest)
+                        Leaf.New(hash, k, v, rest)
                     | ValueNone ->
                         Empty<'K, 'V>.Instance
                 else
                     let next = Linked.remove cmp key x.Next
                     if next == x.Next then x :> _
-                    else CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked.remove cmp key x.Next)
+                    else Leaf.New(x.Hash, x.Key, x.Value, Linked.remove cmp key x.Next)
             else
                 x:> _
 
@@ -448,7 +492,7 @@ module internal HashMapOkasakiImplementation =
                 if cmp.Equals(key, x.Key) then
                     match Linked.destruct x.Next with
                     | ValueSome (struct (k, v, rest)) ->
-                        ValueSome(struct(x.Value, CollisionLeaf.New(hash, k, v, rest)))
+                        ValueSome(struct(x.Value, Leaf.New(hash, k, v, rest)))
                     | ValueNone ->
                         ValueSome(struct(x.Value, Empty.Instance))
                 else
@@ -457,7 +501,7 @@ module internal HashMapOkasakiImplementation =
                         ValueSome(
                             struct(
                                 value,
-                                CollisionLeaf.New(x.Hash, x.Key, x.Value, rest)
+                                Leaf.New(x.Hash, x.Key, x.Value, rest)
                             )
                         )
                     | ValueNone ->
@@ -496,7 +540,7 @@ module internal HashMapOkasakiImplementation =
                         // remove
                         match Linked.destruct x.Next with
                         | ValueSome (struct (k, v, rest)) ->
-                            CollisionLeaf.New(x.Hash, k, v, rest)
+                            Leaf.New(x.Hash, k, v, rest)
                         | ValueNone ->
                             Empty<'K, 'V>.Instance
                     | Some value ->
@@ -506,12 +550,40 @@ module internal HashMapOkasakiImplementation =
                     // in linked?
                     let n = Linked.alter cmp key update x.Next
                     if n == x.Next then x:> _
-                    else CollisionLeaf.New(x.Hash, x.Key, x.Value, n)
+                    else Leaf.New(x.Hash, x.Key, x.Value, n)
             else
                 // other hash => not contained
                 match update None with
                 | None -> x:> _
                 | Some value ->
+                    // add
+                    let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
+                    Node.Join(hash, n, x.Hash, x)
+
+        override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    match update (ValueSome x.Value) with
+                    | ValueNone ->
+                        // remove
+                        match Linked.destruct x.Next with
+                        | ValueSome (struct (k, v, rest)) ->
+                            Leaf.New(x.Hash, k, v, rest)
+                        | ValueNone ->
+                            Empty<'K, 'V>.Instance
+                    | ValueSome value ->
+                        // update
+                        CollisionLeaf.New(x.Hash, x.Key, value, x.Next) 
+                else
+                    // in linked?
+                    let n = Linked.alterV cmp key update x.Next
+                    if n == x.Next then x:> _
+                    else Leaf.New(x.Hash, x.Key, x.Value, n)
+            else
+                // other hash => not contained
+                match update ValueNone with
+                | ValueNone -> x:> _
+                | ValueSome value ->
                     // add
                     let n = NoCollisionLeaf<'K, 'V>.New(hash, key, value)
                     Node.Join(hash, n, x.Hash, x)
@@ -523,26 +595,24 @@ module internal HashMapOkasakiImplementation =
         override x.Choose(mapping: OptimizedClosures.FSharpFunc<'K, 'V, option<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | Some v ->
-                CollisionLeaf.New(x.Hash, x.Key, v, Linked.choose mapping x.Next)
+                Leaf.New(x.Hash, x.Key, v, Linked.choose mapping x.Next)
             | None -> 
                 let rest = Linked.choose mapping x.Next
                 match Linked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    if isNull rest then NoCollisionLeaf.New(x.Hash, key, value)
-                    else CollisionLeaf.New(x.Hash, key, value, rest)
+                    Leaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
                     Empty<'K, 'T>.Instance
 
         override x.ChooseV(mapping: OptimizedClosures.FSharpFunc<'K, 'V, ValueOption<'T>>) =
             match mapping.Invoke(x.Key, x.Value) with
             | ValueSome v ->
-                CollisionLeaf.New(x.Hash, x.Key, v, Linked.chooseV mapping x.Next)
+                Leaf.New(x.Hash, x.Key, v, Linked.chooseV mapping x.Next)
             | ValueNone -> 
                 let rest = Linked.chooseV mapping x.Next
                 match Linked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    if isNull rest then NoCollisionLeaf.New(x.Hash, key, value)
-                    else CollisionLeaf.New(x.Hash, key, value, rest)
+                    Leaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
                     Empty<'K, 'T>.Instance
 
@@ -551,35 +621,32 @@ module internal HashMapOkasakiImplementation =
             let struct (ln, rn) = Linked.chooseV2 mapping x.Next
             let left = 
                 match l with
-                | ValueSome v -> CollisionLeaf.New(x.Hash, x.Key, v, ln) :> AbstractNode<_,_>
+                | ValueSome v -> Leaf.New(x.Hash, x.Key, v, ln) :> HashMapNode<_,_>
                 | ValueNone -> 
                     match Linked.destruct ln with
                     | ValueSome (struct (key, value, rest)) ->
-                        if isNull rest then NoCollisionLeaf.New(x.Hash, key, value)
-                        else CollisionLeaf.New(x.Hash, key, value, rest)
+                        Leaf.New(x.Hash, key, value, rest)
                     | ValueNone ->
                         Empty<'K, 'T1>.Instance
             let right = 
                 match r with
-                | ValueSome v -> CollisionLeaf.New(x.Hash, x.Key, v, rn) :> AbstractNode<_,_>
+                | ValueSome v -> Leaf.New(x.Hash, x.Key, v, rn) :> HashMapNode<_,_>
                 | ValueNone -> 
                     match Linked.destruct rn with
                     | ValueSome (struct (key, value, rest)) ->
-                        if isNull rest then NoCollisionLeaf.New(x.Hash, key, value)
-                        else CollisionLeaf.New(x.Hash, key, value, rest)
+                        Leaf.New(x.Hash, key, value, rest)
                     | ValueNone ->
                         Empty<'K, 'T2>.Instance
             struct (left, right)
 
         override x.Filter(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
             if predicate.Invoke(x.Key, x.Value) then
-                CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked.filter predicate x.Next)
+                Leaf.New(x.Hash, x.Key, x.Value, Linked.filter predicate x.Next)
             else
                 let rest = Linked.filter predicate x.Next
                 match Linked.destruct rest with
                 | ValueSome (struct (key, value, rest)) ->
-                    if isNull rest then NoCollisionLeaf.New(x.Hash, key, value)
-                    else CollisionLeaf.New(x.Hash, key, value, rest)
+                    Leaf.New(x.Hash, key, value, rest)
                 | ValueNone ->
                     Empty<'K, 'V>.Instance
 
@@ -610,12 +677,12 @@ module internal HashMapOkasakiImplementation =
             dst.[!index] <- (x.Key, x.Value)
             index := !index + 1
             Linked.copyTo index dst x.Next
-
-        static member New(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) : AbstractNode<'K, 'V> = 
-            if isNull n then NoCollisionLeaf.New(h, k, v)
-            else new CollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v, Next = n) :> AbstractNode<'K, 'V>
+            
+        static member New(h: uint32, k: 'K, v: 'V, n: Linked<'K, 'V>) : HashMapNode<'K, 'V> = 
+            assert (not (isNull n))
+            new CollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v, Next = n) :> HashMapNode<'K, 'V>
      
-    and [<Sealed>] NoCollisionLeaf<'K, 'V> private() =
+    and [<Sealed>] NoCollisionLeaf<'K, 'V>() =
         inherit Leaf<'K, 'V>()
         [<DefaultValue>]
         val mutable public Key: 'K
@@ -645,6 +712,12 @@ module internal HashMapOkasakiImplementation =
                 Some x.Value
             else
                 None
+
+        override x.TryFindV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =   
+            if hash = x.Hash && cmp.Equals(key, x.Key) then 
+                ValueSome x.Value
+            else
+                ValueNone
 
         override x.ContainsKey(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =   
             if hash = x.Hash && cmp.Equals(key, x.Key) then 
@@ -706,6 +779,26 @@ module internal HashMapOkasakiImplementation =
                     let n = NoCollisionLeaf.New(hash, key, value)
                     Node.Join(hash, n, x.Hash, x)
            
+        override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
+            if x.Hash = hash then
+                if cmp.Equals(key, x.Key) then
+                    match update (ValueSome x.Value) with
+                    | ValueSome value -> 
+                        NoCollisionLeaf.New(x.Hash, x.Key, value)
+                    | ValueNone -> 
+                        Empty.Instance
+                else
+                    match update ValueNone with
+                    | ValueNone -> x:> _
+                    | ValueSome value ->
+                        CollisionLeaf.New(x.Hash, x.Key, x.Value, Linked(key, value, null))
+            else
+                match update ValueNone with
+                | ValueNone -> x:> _
+                | ValueSome value ->
+                    let n = NoCollisionLeaf.New(hash, key, value)
+                    Node.Join(hash, n, x.Hash, x)
+           
         override x.Map(mapping: OptimizedClosures.FSharpFunc<'K, 'V, 'T>) =
             let t = mapping.Invoke(x.Key, x.Value)
             NoCollisionLeaf.New(x.Hash, x.Key, t)
@@ -726,8 +819,8 @@ module internal HashMapOkasakiImplementation =
  
         override x.ChooseV2(mapping: OptimizedClosures.FSharpFunc<'K, 'V, struct (ValueOption<'T1> * ValueOption<'T2>)>) =
             let struct (l,r) = mapping.Invoke(x.Key, x.Value)         
-            let l = match l with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> AbstractNode<_,_> | _ -> Empty.Instance
-            let r = match r with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> AbstractNode<_,_> | _ -> Empty.Instance
+            let l = match l with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> Empty.Instance
+            let r = match r with | ValueSome v -> NoCollisionLeaf.New(x.Hash, x.Key, v) :> HashMapNode<_,_> | _ -> Empty.Instance
             struct (l, r)
 
         override x.Filter(predicate: OptimizedClosures.FSharpFunc<'K, 'V, bool>) =
@@ -752,30 +845,30 @@ module internal HashMapOkasakiImplementation =
             dst.[!index] <- (x.Key, x.Value)
             index := !index + 1
 
-        static member New(h: uint32, k: 'K, v: 'V) : AbstractNode<'K, 'V> = 
-            new NoCollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v) :> _
+        static member New(h : uint32, k : 'K, v : 'V) : HashMapNode<'K, 'V> =
+            new NoCollisionLeaf<'K, 'V>(Hash = h, Key = k, Value = v) :> HashMapNode<'K, 'V>
 
-    and [<Sealed>] Node<'K, 'V> private() =
-        inherit AbstractNode<'K, 'V>()
+    and [<Sealed>] Node<'K, 'V>() =
+        inherit HashMapNode<'K, 'V>()
         [<DefaultValue>]
         val mutable public Prefix: uint32
         [<DefaultValue>]
         val mutable public Mask: Mask
         [<DefaultValue>]
-        val mutable public Left: AbstractNode<'K, 'V>
+        val mutable public Left: HashMapNode<'K, 'V>
         [<DefaultValue>]
-        val mutable public Right: AbstractNode<'K, 'V>
+        val mutable public Right: HashMapNode<'K, 'V>
         [<DefaultValue>]
         val mutable public _Count: int
 
         override x.Count = x._Count
 
-        static member Join (p0 : uint32, t0 : AbstractNode<'K, 'V>, p1 : uint32, t1 : AbstractNode<'K, 'V>) : AbstractNode<'K,'V>=
+        static member Join (p0 : uint32, t0 : HashMapNode<'K, 'V>, p1 : uint32, t1 : HashMapNode<'K, 'V>) : HashMapNode<'K,'V>=
             let m = getMask p0 p1
             if zeroBit p0 m = 0u then Node.New(getPrefix p0 m, m, t0, t1)
             else Node.New(getPrefix p0 m, m, t1, t0)
 
-        static member Create(p: uint32, m: Mask, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) =
+        static member Create(p: uint32, m: Mask, l: HashMapNode<'K, 'V>, r: HashMapNode<'K, 'V>) =
             if r.IsEmpty then l
             elif l.IsEmpty then r
             else Node.New(p, m, l, r)
@@ -799,6 +892,18 @@ module internal HashMapOkasakiImplementation =
             if m = 0u then x.Left.TryFind(cmp, hash, key)
             elif m = 1u then x.Right.TryFind(cmp, hash, key)
             else None
+            #endif
+
+        override x.TryFindV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
+            #if OPTIMISTIC 
+            let m = zeroBit hash x.Mask
+            if m = 0u then x.Left.TryFindV(cmp, hash, key)
+            else x.Right.TryFindV(cmp, hash, key)
+            #else
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then x.Left.TryFindV(cmp, hash, key)
+            elif m = 1u then x.Right.TryFindV(cmp, hash, key)
+            else ValueNone
             #endif
             
         override x.ContainsKey(cmp: EqualityComparer<'K>, hash: uint32, key: 'K) =
@@ -848,11 +953,11 @@ module internal HashMapOkasakiImplementation =
             if m = 0u then 
                 x.Left <- x.Left.AddInPlaceUnsafe(cmp, hash, key, value)
                 x._Count <- x.Left.Count + x.Right.Count
-                x:> AbstractNode<_,_>
+                x:> HashMapNode<_,_>
             elif m = 1u then 
                 x.Right <- x.Right.AddInPlaceUnsafe(cmp, hash, key, value)
                 x._Count <- x.Left.Count + x.Right.Count
-                x:> AbstractNode<_,_>
+                x:> HashMapNode<_,_>
             else
                 let n = NoCollisionLeaf.New(hash, key, value)
                 Node.Join(x.Prefix, x, hash, n)
@@ -881,6 +986,23 @@ module internal HashMapOkasakiImplementation =
                 match update None with
                 | None -> x:> _
                 | Some value ->
+                    let n = NoCollisionLeaf.New(hash, key, value)
+                    Node.Join(x.Prefix, x, hash, n)
+                    
+        override x.AlterV(cmp: EqualityComparer<'K>, hash: uint32, key: 'K, update: voption<'V> -> voption<'V>) =
+            let m = matchPrefixAndGetBit hash x.Prefix x.Mask
+            if m = 0u then 
+                let ll = x.Left.AlterV(cmp, hash, key, update)
+                if ll == x.Left then x:> _
+                else Node.New(x.Prefix, x.Mask, ll, x.Right)
+            elif m = 1u then
+                let rr = x.Right.AlterV(cmp, hash, key, update)
+                if rr == x.Right then x:> _
+                else Node.New(x.Prefix, x.Mask, x.Left, rr)
+            else
+                match update ValueNone with
+                | ValueNone -> x:> _
+                | ValueSome value ->
                     let n = NoCollisionLeaf.New(hash, key, value)
                     Node.Join(x.Prefix, x, hash, n)
                     
@@ -924,9 +1046,15 @@ module internal HashMapOkasakiImplementation =
             x.Left.CopyTo(dst, index)
             x.Right.CopyTo(dst, index)
 
-        static member New(p: uint32, m: Mask, l: AbstractNode<'K, 'V>, r: AbstractNode<'K, 'V>) : AbstractNode<'K, 'V> = 
+        static member New(p: uint32, m: Mask, l: HashMapNode<'K, 'V>, r: HashMapNode<'K, 'V>) : HashMapNode<'K, 'V> = 
             new Node<'K, 'V>(Prefix = p, Mask = m, Left = l, Right = r, _Count = l.Count + r.Count) :> _
 
+    and [<AbstractClass>] NodeVisitor<'K, 'V, 'R>() =
+        abstract member VisitNode: Node<'K, 'V> -> 'R
+        abstract member VisitLeaf: CollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitNoCollision: NoCollisionLeaf<'K, 'V> -> 'R
+        abstract member VisitEmpty: Empty<'K, 'V> -> 'R
+        
     and [<AbstractClass>] NodeVisitor2<'K, 'V1, 'V2, 'R>() =
         abstract member VisitNN     : Node<'K, 'V1> * Node<'K, 'V2> -> 'R
 
@@ -934,11 +1062,11 @@ module internal HashMapOkasakiImplementation =
         abstract member VisitLN     : Leaf<'K, 'V1> * Node<'K, 'V2> -> 'R
         abstract member VisitLL     : Leaf<'K, 'V1> * Leaf<'K, 'V2> -> 'R
 
-        abstract member VisitAE     : AbstractNode<'K, 'V1> * Empty<'K, 'V2> -> 'R
-        abstract member VisitEA     : Empty<'K, 'V1> * AbstractNode<'K, 'V2> -> 'R
+        abstract member VisitAE     : HashMapNode<'K, 'V1> * Empty<'K, 'V2> -> 'R
+        abstract member VisitEA     : Empty<'K, 'V1> * HashMapNode<'K, 'V2> -> 'R
         abstract member VisitEE     : Empty<'K, 'V1> * Empty<'K, 'V2> -> 'R
 
-    type Visit2Visitor<'K, 'V1, 'V2, 'R>(real : NodeVisitor2<'K, 'V1, 'V2, 'R>, node : AbstractNode<'K, 'V2>) =
+    type Visit2Visitor<'K, 'V1, 'V2, 'R>(real : NodeVisitor2<'K, 'V1, 'V2, 'R>, node : HashMapNode<'K, 'V2>) =
         inherit NodeVisitor<'K, 'V1, 'R>()
 
         override x.VisitLeaf l = 
@@ -978,13 +1106,11 @@ module internal HashMapOkasakiImplementation =
             }
 
     module Visit2 = 
-        let visit (v : NodeVisitor2<'K, 'V1, 'V2, 'R>) (l : AbstractNode<'K, 'V1>) (r : AbstractNode<'K, 'V2>) =
+        let visit (v : NodeVisitor2<'K, 'V1, 'V2, 'R>) (l : HashMapNode<'K, 'V1>) (r : HashMapNode<'K, 'V2>) =
             l.Accept (Visit2Visitor(v, r))
 
-
-
 [<Struct>]
-type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNode<'K, 'V>) =
+type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: HashMapNode<'K, 'V>) =
 
     static member Empty = HashMapOkasaki<'K, 'V>(EqualityComparer<'K>.Default, Empty.Instance)
 
@@ -1016,6 +1142,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
             r <- r.AddInPlaceUnsafe(cmp, hash, k, v)
         HashMapOkasaki<'K, 'V>(cmp, r)
         
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     static member OfListUnoptimized(elements: list<'K * 'V>) =  
         let cmp = EqualityComparer<'K>.Default
         let mutable r = HashMapOkasakiImplementation.Empty<'K, 'V>.Instance 
@@ -1060,6 +1187,11 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
         root.TryFind(cmp, hash, key)
         
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member x.TryFindV(key: 'K) =
+        let hash = cmp.GetHashCode key |> uint32
+        root.TryFindV(cmp, hash, key)
+        
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
     member x.ContainsKey(key: 'K) =
         let hash = cmp.GetHashCode key |> uint32
         root.ContainsKey(cmp, hash, key)
@@ -1068,6 +1200,12 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
     member x.Alter(key: 'K, update: option<'V> -> option<'V>) =
         let hash = cmp.GetHashCode key |> uint32
         let newRoot = root.Alter(cmp, hash, key, update)
+        HashMapOkasaki(cmp, newRoot)
+        
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    member x.AlterV(key: 'K, update: voption<'V> -> voption<'V>) =
+        let hash = cmp.GetHashCode key |> uint32
+        let newRoot = root.AlterV(cmp, hash, key, update)
         HashMapOkasaki(cmp, newRoot)
         
     [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
@@ -1133,7 +1271,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
         let result = 
             let cnt = ()
             (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, AbstractNode<'K, 'OP>>() with
+                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'OP>>() with
 
                     member x.VisitEE(_, _) = Empty<'K, 'OP>.Instance
                     member x.VisitEA(_, r) = r.Map(add)
@@ -1145,7 +1283,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
                         else
                             len := 0
                             if l.LHash = r.LHash then
-                                let mutable r = r :> AbstractNode<_,_>
+                                let mutable r = r :> HashMapNode<_,_>
                                 let mutable res = Empty<'K, 'OP>.Instance
                                 let hash = l.LHash
                         
@@ -1238,7 +1376,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
         let result = 
             let cnt = ()
             (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, AbstractNode<'K, 'V>>() with
+                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
 
                     member x.VisitEE(_, _) = Empty<'K, 'V>.Instance
                     member x.VisitEA(_, r) = r
@@ -1247,7 +1385,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
                     member x.VisitLL(l, r) = 
                         len := 0
                         if l.LHash = r.LHash then
-                            let mutable r = r :> AbstractNode<_,_>
+                            let mutable r = r :> HashMapNode<_,_>
                             let mutable res = Empty<'K, 'V>.Instance
                             let hash = l.LHash
                     
@@ -1328,7 +1466,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
 
         let result = 
             (l.Root, r.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'V, AbstractNode<'K, 'V>>() with
+                new NodeVisitor2<'K, 'V, 'V, HashMapNode<'K, 'V>>() with
 
                     member x.VisitEE(_, _) = Empty<'K, 'V>.Instance
                     member x.VisitEA(_, r) = r
@@ -1336,11 +1474,11 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
 
                     member x.VisitLL(l, r) = 
                         if l == r then
-                            r :> AbstractNode<_,_>
+                            r :> HashMapNode<_,_>
                         else
                             len := 0
                             if l.LHash = r.LHash then
-                                let mutable r = r :> AbstractNode<_,_>
+                                let mutable r = r :> HashMapNode<_,_>
                                 let mutable res = Empty<'K, 'V>.Instance
                                 let hash = l.LHash
                 
@@ -1385,7 +1523,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
 
                     member x.VisitNN(l, r) = 
                         if l == r then 
-                            r :> AbstractNode<_,_>
+                            r :> HashMapNode<_,_>
                         else
                             let cc = compareMasks l.Mask r.Mask
                             if cc = 0 then
@@ -1429,7 +1567,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
         let struct(result, delta) = 
             let cnt = ()
             (state.Root, delta.Root) ||> Visit2.visit {
-                new NodeVisitor2<'K, 'V, 'D, struct(AbstractNode<'K, 'V> * AbstractNode<'K, 'D>)>() with
+                new NodeVisitor2<'K, 'V, 'D, struct(HashMapNode<'K, 'V> * HashMapNode<'K, 'D>)>() with
 
                     member x.VisitEE(_, _) = 
                         struct (Empty.Instance, Empty.Instance)
@@ -1443,7 +1581,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
                     member x.VisitLL(state, delta) = 
                         len := 0
                         if state.LHash = delta.LHash then
-                            let mutable delta = delta :> AbstractNode<_,_>
+                            let mutable delta = delta :> HashMapNode<_,_>
                             let mutable resState = Empty<'K, 'V>.Instance
                             let mutable resDelta = Empty<'K, 'D>.Instance
                             let hash = state.LHash
@@ -1606,7 +1744,7 @@ type HashMapOkasaki<'K, 'V> internal(cmp: EqualityComparer<'K>, root: AbstractNo
     interface System.Collections.Generic.IEnumerable<'K * 'V> with 
         member x.GetEnumerator() = new HashMapOkasakiEnumerator<_,_>(root) :> _
 
-and internal HashMapOkasakiEnumerator<'K, 'V>(root: AbstractNode<'K, 'V>) =
+and internal HashMapOkasakiEnumerator<'K, 'V>(root: HashMapNode<'K, 'V>) =
     let mutable stack = [root]
     let mutable linked: Linked<'K, 'V> = null
     let mutable current = Unchecked.defaultof<'K * 'V>
@@ -1657,7 +1795,6 @@ and internal HashMapOkasakiEnumerator<'K, 'V>(root: AbstractNode<'K, 'V>) =
         member x.Dispose() = x.Dispose()
         member x.Current = x.Current
 
-
 module HashMapOkasaki =
 
     /// The empty map.
@@ -1700,7 +1837,6 @@ module HashMapOkasaki =
     let inline ofListUnoptimized (list: list<'K * 'V>) = 
         HashMapOkasaki<'K, 'V>.OfListUnoptimized list
 
-
     /// Creates a seq holding all tuples contained in the map.
     /// `O(N)`
     let inline toSeq (map: HashMapOkasaki<'K, 'V>) = 
@@ -1742,9 +1878,9 @@ module HashMapOkasaki =
     /// Finds the value for the given key and raises KeyNotFoundException on failure.
     /// `O(log N)`
     let inline find (key: 'K) (map: HashMapOkasaki<'K, 'V>) =
-        match tryFind key map with
-        | Some v -> v
-        | None -> raise <| KeyNotFoundException()
+        match map.TryFindV key with
+        | ValueSome v -> v
+        | ValueNone -> raise <| KeyNotFoundException()
 
     /// Tests if an entry for the given key exists. `O(log N)`
     let inline containsKey (key: 'K) (map: HashMapOkasaki<'K, 'V>) =
@@ -1852,3 +1988,6 @@ module HashMapOkasaki =
                     struct(ValueSome v, ValueSome (Set v))
 
         HashMapOkasaki<'K, 'V>.ApplyDelta(l, r, apply)
+
+
+

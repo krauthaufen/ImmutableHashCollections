@@ -599,8 +599,13 @@ module RunTests =
 
     [<EntryPoint>]
     let main args =
+        let o = Expecto.Impl.TestPrinters.summaryWithLocationPrinter Expecto.Impl.TestPrinters.defaultPrinter
+        let cfg = 
+            { Expecto.Impl.ExpectoConfig.defaultConfig with 
+                printer = o
+            }
         // run tests
-        Expecto.Impl.runEval Expecto.Impl.ExpectoConfig.defaultConfig Tests.Tests.testSimpleTests
+        Expecto.Impl.runEval cfg Tests.Tests.testSimpleTests
         |> Async.RunSynchronously
         |> ignore
         

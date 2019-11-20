@@ -14,10 +14,10 @@
     <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DefineConstants>TRACE;USE_INTRINSICS;OPTIMISTIC</DefineConstants>
+    <DefineConstants>TRACE;OPTIMISTIC;USE_INTRINSICS</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <DefineConstants>TRACE;USE_INTRINSICS;OPTIMISTIC</DefineConstants>
+    <DefineConstants>TRACE;OPTIMISTIC;USE_INTRINSICS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Remove="Scripts\**" />
@@ -25,6 +25,7 @@
   <ItemGroup>
     <Compile Include="Operations.fs" />
     <Compile Include="HashMapOkasaki.fs" />
+    <Compile Include="HashSetOkasaki.fs" />
     <Compile Include="HashMapFSharpX.fs" />
     <Compile Include="IntMap.fs" />
     <Compile Include="HashMap.fs" />

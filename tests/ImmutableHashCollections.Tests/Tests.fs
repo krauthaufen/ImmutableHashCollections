@@ -42,6 +42,20 @@ module Tests =
             | None -> Map.remove key m
             | Some n -> Map.add key n m
 
+        let union (a : Map<'K, 'V>) (b : Map<'K, 'V>) =
+            let mutable res = a
+            for KeyValue(k,v) in b do
+                res <- Map.add k v res
+            res
+
+        let unionWith (resolve : 'K -> 'V -> 'V -> 'V) (a : Map<'K, 'V>) (b : Map<'K, 'V>) =
+            let mutable res = a
+            for KeyValue(k,v) in b do
+                match Map.tryFind k res with
+                | Some o -> res <- Map.add k (resolve k o v) res
+                | None -> res <- Map.add k v res
+            res
+
 
 
     [<Tests>]
@@ -69,6 +83,23 @@ module Tests =
                     Expect.equalMaps m hm
                 | None ->
                     ()
+
+            testPropertyWithConfig config10k "tryRemove" <| fun (m : Map<string, string>) ->
+                let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
+                match m |> Map.toSeq |> Seq.tryHead with
+                | Some (k,_) ->
+                    match HashMapOkasaki.tryRemove k hm with
+                    | Some (value, rest) ->
+                        let hm = HashMapOkasaki.remove k hm
+                        Expect.equal value (Map.find k m) "unexpected value"
+                        Expect.equalMaps (Map.remove k m) rest
+                    | None ->
+                        failwithf "removal of %A was unsuccessful" k
+
+                | None ->
+                    match HashMapOkasaki.tryRemove "a" hm with
+                    | None -> ()
+                    | v -> failwithf "tryRemove returned %A but None was expected" v
                     
             testPropertyWithConfig config10k "tryRemove" <| fun (m : Map<string, string>) ->
                 let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
@@ -84,7 +115,13 @@ module Tests =
                         failwith "bad"
                 | None ->
                     ()
-            testProperty "alter" <| fun (m : Map<string, string>) ->
+            testPropertyWithConfig config10k  "ofList" <| fun (l : list<string * string>) ->
+                let hm = HashMapOkasaki.ofList l
+                let m = Map.ofList l
+
+                Expect.equalMaps m hm
+
+            testPropertyWithConfig config10k  "alter" <| fun (m : Map<string, string>) ->
                 let hm = HashMapOkasaki.ofSeq (Map.toSeq m)
 
                 let hm = HashMapOkasaki.alter "a" (fun o -> Some "a") hm
@@ -104,7 +141,23 @@ module Tests =
                 | None ->
                     ()
 
-            testProperty "compute/applyDelta" <| fun (ma : Map<string, string>) (mb : Map<string, string>) ->
+                    
+            testPropertyWithConfig config10k  "union" <| fun (ma : Map<string, string>) (mb : Map<string, string>) ->
+                let mc = Map.union ma mb
+                let a = HashMapOkasaki.ofSeq (Map.toSeq ma)
+                let b = HashMapOkasaki.ofSeq (Map.toSeq mb)
+                let c = HashMapOkasaki.union a b
+                Expect.equalMaps mc c
+
+            testPropertyWithConfig config10k  "unionWith" <| fun (ma : Map<string, string>) (mb : Map<string, string>) ->
+                let resolve _ l r = l + " " + r
+                let mc = Map.unionWith resolve ma mb
+                let a = HashMapOkasaki.ofSeq (Map.toSeq ma)
+                let b = HashMapOkasaki.ofSeq (Map.toSeq mb)
+                let c = HashMapOkasaki.unionWith resolve a b
+                Expect.equalMaps mc c
+
+            testPropertyWithConfig config10k  "compute/applyDelta" <| fun (ma : Map<string, string>) (mb : Map<string, string>) ->
                 let a = HashMapOkasaki.ofSeq (Map.toSeq ma)
                 let b = HashMapOkasaki.ofSeq (Map.toSeq mb)
                 
